@@ -8,6 +8,7 @@ all-features = true
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [dependencies]
+realm_server = { version = "0.1", path = "../server" }
 egui = "0.27.2"
 eframe = { version = "0.27.2", default-features = false, features = [
     "accesskit",     # Make egui comptaible with screen readers. NOTE: adds a lot of dependencies.
@@ -16,6 +17,7 @@ eframe = { version = "0.27.2", default-features = false, features = [
     "persistence",   # Enable restoring app state when restarting the app.
 ] }
 log = "0.4"
+tarpc = { version = "0.34.0", features = ["full"] }
 
 # You only need serde if you want app persistence:
 serde = { version = "1", features = ["derive"] }
