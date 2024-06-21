@@ -6,6 +6,7 @@ use iced::widget::{
 };
 use iced::window;
 use iced::{Command, Element, Font, Length, Subscription};
+use iced::futures::StreamExt;
 
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
@@ -15,14 +16,7 @@ use realm_server::types::Message;
 static INPUT_ID: Lazy<text_input::Id> = Lazy::new(text_input::Id::unique);
 
 #[derive(Default, Debug)]
-pub enum RealmApp {
-    #[default]
-    Loading,
-    Loaded(State),
-}
-
-#[derive(Debug, Default)]
-pub struct State {
+pub struct RealmApp {
     input_value: String,
     messages: Vec<Message>,
 }
@@ -46,91 +40,48 @@ impl RealmApp {
     }
 
     pub fn update(&mut self, event: Events) -> Command<Events> {
-        match self {
-            RealmApp::Loading => {
-                text_input::focus(INPUT_ID.clone())
+        let command = match event {
+            Events::InputChanged(value) => {
+                self.input_value = value;
+
+                Command::none()
             }
-            RealmApp::Loaded(state) => {
-                let command = match event {
-                    Events::InputChanged(value) => {
-                        state.input_value = value;
-
-                        Command::none()
-                    }
-                    Events::SendMessage => {
-                        //TODO
-
-                        Command::none()
-                    }
-                };
-
-                Command::batch(vec![command])
+            Events::SendMessage => {
+                //TODO
+                self.input_value.clear();
+                Command::none()
             }
-        }
+        };
+
+        Command::batch(vec![command])
     }
 
     pub fn view(&self) -> Element<Events> {
-        match self {
-            RealmApp::Loading => loading_message(),
-            RealmApp::Loaded(State {
-                              input_value,
-                              messages: tasks,
-                              ..
-                          }) => {
-                let title = text("todos")
-                    .width(Length::Fill)
-                    .size(100)
-                    .color([0.5, 0.5, 0.5])
-                    .horizontal_alignment(alignment::Horizontal::Center);
+        let title = text("todos")
+            .width(Length::Fill)
+            .size(100)
+            .color([0.5, 0.5, 0.5])
+            .horizontal_alignment(alignment::Horizontal::Center);
 
-                let input = text_input("What needs to be done?", input_value)
-                    .id(INPUT_ID.clone())
-                    .on_input(Events::InputChanged)
-                    .on_submit(Events::SendMessage)
-                    .padding(15)
-                    .size(30);
+        let input = text_input("New Message", &*self.input_value)
+            .id(INPUT_ID.clone())
+            .on_input(Events::InputChanged)
+            .on_submit(Events::SendMessage)
+            //.padding(15)
+            .size(12);
 
-                // let controls = view_controls(tasks, *filter);
-                // let filtered_tasks =
-                //     tasks.iter().filter(|task| filter.matches(task));
-                // 
-                // let tasks: Element<_> = if filtered_tasks.count() > 0 {
-                //     keyed_column(
-                //         tasks
-                //             .iter()
-                //             .enumerate()
-                //             .filter(|(_, task)| filter.matches(task))
-                //             .map(|(i, task)| {
-                //                 (
-                //                     task.id,
-                //                     task.view(i).map(move |message| {
-                //                         Events::TaskMessage(i, message)
-                //                     }),
-                //                 )
-                //             }),
-                //     )
-                //         .spacing(10)
-                //         .into()
-                // } else {
-                //     empty_message(match filter {
-                //         Filter::All => "You have not created a task yet...",
-                //         Filter::Active => "All your tasks are done! :D",
-                //         Filter::Completed => {
-                //             "You have not completed a task yet..."
-                //         }
-                //     })
-                // };
-
-                let content = column![title, input]
-                    .spacing(20)
-                    .max_width(800);
-
-                scrollable(
-                    container(content).center_x(Length::Fill).padding(40),
-                )
-                    .into()
-            }
+        let messages: Vec<Text> = Vec::new();
+        for message in &self.messages {
+            
         }
+        
+        let content = column![title, input]
+            .spacing(20);
+            //.max_width(800);
+
+        scrollable(
+            container(content).center_x(Length::Fill).padding(40),
+        ).into()
     }
 
     pub fn subscription(&self) -> Subscription<Events> {
