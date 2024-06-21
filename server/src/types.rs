@@ -3,18 +3,18 @@ pub trait RealmChat {
 	async fn test(name: String) -> String;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Message {
-	guid: String,
-	text: Option<String>,
-	attachments: Option<Vec<Attachment>>,
-	reply_to_guid: Option<String>,
-	reaction_emoji: Option<String>,
-	redact: bool,
+	pub guid: String,
+	pub text: Option<String>,
+	pub attachments: Option<Vec<Attachment>>,
+	pub reply_to_guid: Option<String>,
+	pub reaction_emoji: Option<String>,
+	pub redact: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Attachment {
-	guid: String,
+	pub guid: String,
 	//TODO
 }

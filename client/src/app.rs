@@ -1,5 +1,5 @@
 use iced::alignment::{self, Alignment};
-use iced::keyboard;
+use iced::{keyboard, Renderer, Theme};
 use iced::widget::{
     self, button, center, checkbox, column, container, keyed_column, row,
     scrollable, text, text_input, Text,
@@ -47,6 +47,15 @@ impl RealmApp {
                 Command::none()
             }
             Events::SendMessage => {
+                self.messages.push(Message {
+                    guid: "".to_string(),
+                    text: Some(self.input_value.clone()),
+                    attachments: None,
+                    reply_to_guid: None,
+                    reaction_emoji: None,
+                    redact: false,
+                });
+
                 //TODO
                 self.input_value.clear();
                 Command::none()
@@ -57,12 +66,6 @@ impl RealmApp {
     }
 
     pub fn view(&self) -> Element<Events> {
-        let title = text("todos")
-            .width(Length::Fill)
-            .size(100)
-            .color([0.5, 0.5, 0.5])
-            .horizontal_alignment(alignment::Horizontal::Center);
-
         let input = text_input("New Message", &*self.input_value)
             .id(INPUT_ID.clone())
             .on_input(Events::InputChanged)
@@ -70,18 +73,28 @@ impl RealmApp {
             //.padding(15)
             .size(12);
 
-        let messages: Vec<Text> = Vec::new();
-        for message in &self.messages {
-            
+        let mut all_messages: String = String::new();
+        for message in self.messages.iter() {
+            match message.clone().text {
+                None => {}
+                Some(text) => {
+                    all_messages = format!("{}{}\n", all_messages, text)
+                }
+            }
         }
-        
-        let content = column![title, input]
-            .spacing(20);
+
+        let messages = text(all_messages)
+            .size(12)
+            .width(Length::Fill)
+			.height(600)
+			.horizontal_alignment(alignment::Horizontal::Left);
+
+        // let content = column![title, input]
+        //     .spacing(20);
             //.max_width(800);
 
-        scrollable(
-            container(content).center_x(Length::Fill).padding(40),
-        ).into()
+		column!(scrollable(
+			container(messages).center_x(Length::Fill).padding(40)), input).into()
     }
 
     pub fn subscription(&self) -> Subscription<Events> {
