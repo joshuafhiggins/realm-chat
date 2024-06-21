@@ -10,11 +10,12 @@ use iced::{Command, Element, Font, Length, Subscription};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use realm_server::types::Message;
 
 static INPUT_ID: Lazy<text_input::Id> = Lazy::new(text_input::Id::unique);
 
 #[derive(Default, Debug)]
-pub enum Realm {
+pub enum RealmApp {
     #[default]
     Loading,
     Loaded(State),
@@ -23,159 +24,57 @@ pub enum Realm {
 #[derive(Debug, Default)]
 pub struct State {
     input_value: String,
-    filter: Filter,
-    tasks: Vec<Task>,
-    dirty: bool,
-    saving: bool,
+    messages: Vec<Message>,
 }
 
 #[derive(Debug, Clone)]
-pub enum Message {
-    Loaded(Result<SavedState, LoadError>),
-    Saved(Result<(), SaveError>),
+pub enum Events {
+    // Loaded(Result<SavedState, LoadError>),
+    // Saved(Result<(), SaveError>),
     InputChanged(String),
-    CreateTask,
-    FilterChanged(Filter),
-    TaskMessage(usize, TaskMessage),
-    TabPressed { shift: bool },
-    ToggleFullscreen(window::Mode),
+    SendMessage,
 }
 
-impl Realm {
-    pub fn load() -> Command<Message> {
-        Command::perform(SavedState::load(), Message::Loaded)
+impl RealmApp {
+    pub fn load() -> Command<Events> {
+        //Command::perform(SavedState::load(), Events::Loaded)
+        Command::none()
     }
 
     pub fn title(&self) -> String {
-        let dirty = match self {
-            Realm::Loading => false,
-            Realm::Loaded(state) => state.dirty,
-        };
-
-        format!("Todos{} - Iced", if dirty { "*" } else { "" })
+        "Realm Chat".to_string()
     }
 
-    pub fn update(&mut self, message: Message) -> Command<Message> {
+    pub fn update(&mut self, event: Events) -> Command<Events> {
         match self {
-            Realm::Loading => {
-                match message {
-                    Message::Loaded(Ok(state)) => {
-                        *self = Realm::Loaded(State {
-                            input_value: state.input_value,
-                            filter: state.filter,
-                            tasks: state.tasks,
-                            ..State::default()
-                        });
-                    }
-                    Message::Loaded(Err(_)) => {
-                        *self = Realm::Loaded(State::default());
-                    }
-                    _ => {}
-                }
-
+            RealmApp::Loading => {
                 text_input::focus(INPUT_ID.clone())
             }
-            Realm::Loaded(state) => {
-                let mut saved = false;
-
-                let command = match message {
-                    Message::InputChanged(value) => {
+            RealmApp::Loaded(state) => {
+                let command = match event {
+                    Events::InputChanged(value) => {
                         state.input_value = value;
 
                         Command::none()
                     }
-                    Message::CreateTask => {
-                        if !state.input_value.is_empty() {
-                            state
-                                .tasks
-                                .push(Task::new(state.input_value.clone()));
-                            state.input_value.clear();
-                        }
+                    Events::SendMessage => {
+                        //TODO
 
                         Command::none()
                     }
-                    Message::FilterChanged(filter) => {
-                        state.filter = filter;
-
-                        Command::none()
-                    }
-                    Message::TaskMessage(i, TaskMessage::Delete) => {
-                        state.tasks.remove(i);
-
-                        Command::none()
-                    }
-                    Message::TaskMessage(i, task_message) => {
-                        if let Some(task) = state.tasks.get_mut(i) {
-                            let should_focus =
-                                matches!(task_message, TaskMessage::Edit);
-
-                            task.update(task_message);
-
-                            if should_focus {
-                                let id = Task::text_input_id(i);
-                                Command::batch(vec![
-                                    text_input::focus(id.clone()),
-                                    text_input::select_all(id),
-                                ])
-                            } else {
-                                Command::none()
-                            }
-                        } else {
-                            Command::none()
-                        }
-                    }
-                    Message::Saved(_result) => {
-                        state.saving = false;
-                        saved = true;
-
-                        Command::none()
-                    }
-                    Message::TabPressed { shift } => {
-                        if shift {
-                            widget::focus_previous()
-                        } else {
-                            widget::focus_next()
-                        }
-                    }
-                    Message::ToggleFullscreen(mode) => {
-                        window::change_mode(window::Id::MAIN, mode)
-                    }
-                    Message::Loaded(_) => Command::none(),
                 };
 
-                if !saved {
-                    state.dirty = true;
-                }
-
-                let save = if state.dirty && !state.saving {
-                    state.dirty = false;
-                    state.saving = true;
-
-                    Command::perform(
-                        SavedState {
-                            input_value: state.input_value.clone(),
-                            filter: state.filter,
-                            tasks: state.tasks.clone(),
-                        }
-                            .save(),
-                        Message::Saved,
-                    )
-                } else {
-                    Command::none()
-                };
-
-                Command::batch(vec![command, save])
+                Command::batch(vec![command])
             }
         }
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<Events> {
         match self {
-            Realm::Loading => loading_message(),
-            Realm::Loaded(State {
+            RealmApp::Loading => loading_message(),
+            RealmApp::Loaded(State {
                               input_value,
-                              filter,
-                              tasks,
+                              messages: tasks,
                               ..
                           }) => {
                 let title = text("todos")
@@ -186,43 +85,43 @@ impl Realm {
 
                 let input = text_input("What needs to be done?", input_value)
                     .id(INPUT_ID.clone())
-                    .on_input(Message::InputChanged)
-                    .on_submit(Message::CreateTask)
+                    .on_input(Events::InputChanged)
+                    .on_submit(Events::SendMessage)
                     .padding(15)
                     .size(30);
 
-                let controls = view_controls(tasks, *filter);
-                let filtered_tasks =
-                    tasks.iter().filter(|task| filter.matches(task));
+                // let controls = view_controls(tasks, *filter);
+                // let filtered_tasks =
+                //     tasks.iter().filter(|task| filter.matches(task));
+                // 
+                // let tasks: Element<_> = if filtered_tasks.count() > 0 {
+                //     keyed_column(
+                //         tasks
+                //             .iter()
+                //             .enumerate()
+                //             .filter(|(_, task)| filter.matches(task))
+                //             .map(|(i, task)| {
+                //                 (
+                //                     task.id,
+                //                     task.view(i).map(move |message| {
+                //                         Events::TaskMessage(i, message)
+                //                     }),
+                //                 )
+                //             }),
+                //     )
+                //         .spacing(10)
+                //         .into()
+                // } else {
+                //     empty_message(match filter {
+                //         Filter::All => "You have not created a task yet...",
+                //         Filter::Active => "All your tasks are done! :D",
+                //         Filter::Completed => {
+                //             "You have not completed a task yet..."
+                //         }
+                //     })
+                // };
 
-                let tasks: Element<_> = if filtered_tasks.count() > 0 {
-                    keyed_column(
-                        tasks
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, task)| filter.matches(task))
-                            .map(|(i, task)| {
-                                (
-                                    task.id,
-                                    task.view(i).map(move |message| {
-                                        Message::TaskMessage(i, message)
-                                    }),
-                                )
-                            }),
-                    )
-                        .spacing(10)
-                        .into()
-                } else {
-                    empty_message(match filter {
-                        Filter::All => "You have not created a task yet...",
-                        Filter::Active => "All your tasks are done! :D",
-                        Filter::Completed => {
-                            "You have not completed a task yet..."
-                        }
-                    })
-                };
-
-                let content = column![title, input, controls, tasks]
+                let content = column![title, input]
                     .spacing(20)
                     .max_width(800);
 
@@ -234,7 +133,7 @@ impl Realm {
         }
     }
 
-    pub fn subscription(&self) -> Subscription<Message> {
+    pub fn subscription(&self) -> Subscription<Events> {
         use keyboard::key;
 
         keyboard::on_key_press(|key, modifiers| {
@@ -243,189 +142,22 @@ impl Realm {
             };
 
             match (key, modifiers) {
-                (key::Named::Tab, _) => Some(Message::TabPressed {
-                    shift: modifiers.shift(),
-                }),
-                (key::Named::ArrowUp, keyboard::Modifiers::SHIFT) => {
-                    Some(Message::ToggleFullscreen(window::Mode::Fullscreen))
-                }
-                (key::Named::ArrowDown, keyboard::Modifiers::SHIFT) => {
-                    Some(Message::ToggleFullscreen(window::Mode::Windowed))
-                }
+                // (key::Named::Tab, _) => Some(Events::TabPressed {
+                //     shift: modifiers.shift(),
+                // }),
+                // (key::Named::ArrowUp, keyboard::Modifiers::SHIFT) => {
+                //     Some(Events::ToggleFullscreen(window::Mode::Fullscreen))
+                // }
+                // (key::Named::ArrowDown, keyboard::Modifiers::SHIFT) => {
+                //     Some(Events::ToggleFullscreen(window::Mode::Windowed))
+                // }
                 _ => None,
             }
         })
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct Task {
-    #[serde(default = "Uuid::new_v4")]
-    id: Uuid,
-    description: String,
-    completed: bool,
-
-    #[serde(skip)]
-    state: TaskState,
-}
-
-#[derive(Debug, Clone)]
-pub enum TaskState {
-    Idle,
-    Editing,
-}
-
-impl Default for TaskState {
-    fn default() -> Self {
-        Self::Idle
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum TaskMessage {
-    Completed(bool),
-    Edit,
-    DescriptionEdited(String),
-    FinishEdition,
-    Delete,
-}
-
-impl Task {
-    fn text_input_id(i: usize) -> text_input::Id {
-        text_input::Id::new(format!("task-{i}"))
-    }
-
-    fn new(description: String) -> Self {
-        Task {
-            id: Uuid::new_v4(),
-            description,
-            completed: false,
-            state: TaskState::Idle,
-        }
-    }
-
-    fn update(&mut self, message: TaskMessage) {
-        match message {
-            TaskMessage::Completed(completed) => {
-                self.completed = completed;
-            }
-            TaskMessage::Edit => {
-                self.state = TaskState::Editing;
-            }
-            TaskMessage::DescriptionEdited(new_description) => {
-                self.description = new_description;
-            }
-            TaskMessage::FinishEdition => {
-                if !self.description.is_empty() {
-                    self.state = TaskState::Idle;
-                }
-            }
-            TaskMessage::Delete => {}
-        }
-    }
-
-    fn view(&self, i: usize) -> Element<TaskMessage> {
-        match &self.state {
-            TaskState::Idle => {
-                let checkbox = checkbox(&self.description, self.completed)
-                    .on_toggle(TaskMessage::Completed)
-                    .width(Length::Fill)
-                    .size(17)
-                    .text_shaping(text::Shaping::Advanced);
-
-                row![
-                    checkbox,
-                    button(edit_icon())
-                        .on_press(TaskMessage::Edit)
-                        .padding(10)
-                        .style(button::text),
-                ]
-                    .spacing(20)
-                    .align_items(Alignment::Center)
-                    .into()
-            }
-            TaskState::Editing => {
-                let text_input =
-                    text_input("Describe your task...", &self.description)
-                        .id(Self::text_input_id(i))
-                        .on_input(TaskMessage::DescriptionEdited)
-                        .on_submit(TaskMessage::FinishEdition)
-                        .padding(10);
-
-                row![
-                    text_input,
-                    button(
-                        row![delete_icon(), "Delete"]
-                            .spacing(10)
-                            .align_items(Alignment::Center)
-                    )
-                    .on_press(TaskMessage::Delete)
-                    .padding(10)
-                    .style(button::danger)
-                ]
-                    .spacing(20)
-                    .align_items(Alignment::Center)
-                    .into()
-            }
-        }
-    }
-}
-
-fn view_controls(tasks: &[Task], current_filter: Filter) -> Element<Message> {
-    let tasks_left = tasks.iter().filter(|task| !task.completed).count();
-
-    let filter_button = |label, filter, current_filter| {
-        let label = text(label);
-
-        let button = button(label).style(if filter == current_filter {
-            button::primary
-        } else {
-            button::text
-        });
-
-        button.on_press(Message::FilterChanged(filter)).padding(8)
-    };
-
-    row![
-        text!(
-            "{tasks_left} {} left",
-            if tasks_left == 1 { "task" } else { "tasks" }
-        )
-        .width(Length::Fill),
-        row![
-            filter_button("All", Filter::All, current_filter),
-            filter_button("Active", Filter::Active, current_filter),
-            filter_button("Completed", Filter::Completed, current_filter,),
-        ]
-        .width(Length::Shrink)
-        .spacing(10)
-    ]
-        .spacing(20)
-        .align_items(Alignment::Center)
-        .into()
-}
-
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize,
-)]
-pub enum Filter {
-    #[default]
-    All,
-    Active,
-    Completed,
-}
-
-impl Filter {
-    fn matches(self, task: &Task) -> bool {
-        match self {
-            Filter::All => true,
-            Filter::Active => !task.completed,
-            Filter::Completed => task.completed,
-        }
-    }
-}
-
-fn loading_message<'a>() -> Element<'a, Message> {
+fn loading_message<'a>() -> Element<'a, Events> {
     center(
         text("Loading...")
             .horizontal_alignment(alignment::Horizontal::Center)
@@ -434,7 +166,7 @@ fn loading_message<'a>() -> Element<'a, Message> {
         .into()
 }
 
-fn empty_message(message: &str) -> Element<'_, Message> {
+fn empty_message(message: &str) -> Element<'_, Events> {
     center(
         text(message)
             .width(Length::Fill)
@@ -462,88 +194,4 @@ fn edit_icon() -> Text<'static> {
 
 fn delete_icon() -> Text<'static> {
     icon('\u{F1F8}')
-}
-
-// Persistence
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SavedState {
-    input_value: String,
-    filter: Filter,
-    tasks: Vec<Task>,
-}
-
-#[derive(Debug, Clone)]
-enum LoadError {
-    File,
-    Format,
-}
-
-#[derive(Debug, Clone)]
-enum SaveError {
-    File,
-    Write,
-    Format,
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl SavedState {
-    fn path() -> std::path::PathBuf {
-        let mut path = if let Some(project_dirs) =
-            directories_next::ProjectDirs::from("rs", "Iced", "Todos")
-        {
-            project_dirs.data_dir().into()
-        } else {
-            std::env::current_dir().unwrap_or_default()
-        };
-
-        path.push("todos.json");
-
-        path
-    }
-
-    async fn load() -> Result<SavedState, LoadError> {
-        use async_std::prelude::*;
-
-        let mut contents = String::new();
-
-        let mut file = async_std::fs::File::open(Self::path())
-            .await
-            .map_err(|_| LoadError::File)?;
-
-        file.read_to_string(&mut contents)
-            .await
-            .map_err(|_| LoadError::File)?;
-
-        serde_json::from_str(&contents).map_err(|_| LoadError::Format)
-    }
-
-    async fn save(self) -> Result<(), SaveError> {
-        use async_std::prelude::*;
-
-        let json = serde_json::to_string_pretty(&self)
-            .map_err(|_| SaveError::Format)?;
-
-        let path = Self::path();
-
-        if let Some(dir) = path.parent() {
-            async_std::fs::create_dir_all(dir)
-                .await
-                .map_err(|_| SaveError::File)?;
-        }
-
-        {
-            let mut file = async_std::fs::File::create(path)
-                .await
-                .map_err(|_| SaveError::File)?;
-
-            file.write_all(json.as_bytes())
-                .await
-                .map_err(|_| SaveError::Write)?;
-        }
-
-        // This is a simple way to save at most once every couple seconds
-        async_std::task::sleep(std::time::Duration::from_secs(2)).await;
-
-        Ok(())
-    }
 }

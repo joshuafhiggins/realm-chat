@@ -1,3 +1,3 @@
 mod app;
 mod components;
-pub use app::Realm;
+pub use app::RealmApp;
