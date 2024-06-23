@@ -1,0 +1,108 @@
+[gd_scene load_steps=2 format=3 uid="uid://csdvvecgjhecv"]
+
+[ext_resource type="Script" path="res://main.gd" id="1_vv44s"]
+
+[node name="Control" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_vv44s")
+
+[node name="Panel" type="Panel" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="HBoxContainer" type="HBoxContainer" parent="Panel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Servers" type="Panel" parent="Panel/HBoxContainer"]
+clip_contents = true
+custom_minimum_size = Vector2(200, 0)
+layout_mode = 2
+
+[node name="Rooms" type="Panel" parent="Panel/HBoxContainer"]
+clip_contents = true
+custom_minimum_size = Vector2(200, 0)
+layout_mode = 2
+
+[node name="Room View" type="Panel" parent="Panel/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="VBoxContainer" type="VBoxContainer" parent="Panel/HBoxContainer/Room View"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ScrollContainer" type="ScrollContainer" parent="Panel/HBoxContainer/Room View/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Messages" type="VBoxContainer" parent="Panel/HBoxContainer/Room View/VBoxContainer/ScrollContainer"]
+clip_contents = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="RichTextLabel" type="RichTextLabel" parent="Panel/HBoxContainer/Room View/VBoxContainer/ScrollContainer/Messages"]
+layout_mode = 2
+size_flags_vertical = 3
+focus_mode = 2
+text = "asdfasdfasdfqweqwerqwerqw
+erq
+we
+rqw
+er
+qwer
+qw
+er
+qwer
+qw
+r
+qw
+er
+qwer
+qw
+errqwerqwer
+qwer
+qw
+er
+qwer
+qw
+erq
+wer
+qw
+er
+qw
+erq
+wer
+qwerqwerqwer
+qwer
+qw
+erq
+wer
+qwe
+r"
+scroll_following = true
+selection_enabled = true
+
+[node name="TextEdit" type="TextEdit" parent="Panel/HBoxContainer/Room View/VBoxContainer"]
+custom_minimum_size = Vector2(0, 30)
+layout_mode = 2
+placeholder_text = "Write a Message"
