@@ -1,23 +1,23 @@
 use std::net::SocketAddr;
-use std::sync::Arc;
+
 use futures::future;
 use futures::future::Ready;
-use surrealdb::engine::remote::ws::Client;
-use surrealdb::{Error, Response, Surreal};
+use sqlx::{MySql, Pool};
 use tarpc::context::Context;
-use crate::types::{Message, RealmChat, Room, ErrorCode, User, Record};
+use tarpc::server::incoming::Incoming;
+use crate::types::{ErrorCode, Message, MessageData, RealmChat, Room, User};
 
 #[derive(Clone)]
 pub struct RealmChatServer {
 	pub socket: SocketAddr, 
-	pub db: Arc<Surreal<Client>>,
+	pub db_pool: Pool<MySql>,
 }
 
 impl RealmChatServer {
-	pub fn new(socket: SocketAddr, db: Arc<Surreal<Client>>) -> RealmChatServer {
+	pub fn new(socket: SocketAddr, db_pool: Pool<MySql>) -> RealmChatServer {
 		RealmChatServer {
 			socket,
-			db,
+			db_pool,
 		}
 	}
 }
@@ -28,15 +28,43 @@ impl RealmChat for RealmChatServer {
 	}
 
 	async fn send_message(self, context: Context, message: Message) -> Result<Message, ErrorCode> {
-		let created: surrealdb::Result<Vec<Record>> = self.db
-			.create(message.room.roomid.clone())
-			.content(message.clone())
-			.await;
+		//TODO: verify authentication somehow
 		
-		//TODO: Tell everyone
+		let result = match &message.data {
+			MessageData::Text(text) => { 
+				sqlx::query("INSERT INTO message (timestamp, user, room, type, msgText) VALUES (?, ?, ?, 'text', ?)")
+					.bind(message.timestamp).bind(message.user.id).bind(message.room.id).bind(text)
+					.execute(&self.db_pool).await 
+			}
+			MessageData::Attachment(attachment) => { todo!() }
+			MessageData::Reply(reply) => {
+				sqlx::query("INSERT INTO message (timestamp, user, room, type, msgText, referencingID) VALUES (?, ?, ?, 'reply', ?, ?)")
+					.bind(message.timestamp).bind(message.user.id).bind(message.room.id).bind(reply.text.clone()).bind(reply.referencing_id)
+					.execute(&self.db_pool).await
+			}
+			MessageData::Edit(edit) => {
+				sqlx::query("INSERT INTO message (timestamp, user, room, type, msgText, referencingID) VALUES (?, ?, ?, 'edit', ?, ?)")
+					.bind(message.timestamp).bind(message.user.id).bind(message.room.id).bind(edit.text.clone()).bind(edit.referencing_id)
+					.execute(&self.db_pool).await
+			}
+			MessageData::Reaction(reaction) => {
+				sqlx::query("INSERT INTO message (timestamp, user, room, type, emoji, referencingID) VALUES (?, ?, ?, 'reaction', ?, ?)")
+					.bind(message.timestamp).bind(message.user.id).bind(message.room.id).bind(reaction.emoji.clone()).bind(reaction.referencing_id)
+					.execute(&self.db_pool).await
+			}
+			MessageData::Redaction(redaction) => {
+				sqlx::query("INSERT INTO message (timestamp, user, room, type, redaction, referencingID) VALUES (?, ?, ?, 'redaction', ?, ?)")
+					.bind(message.timestamp).bind(message.user.id).bind(message.room.id).bind(true).bind(redaction.referencing_id)
+					.execute(&self.db_pool).await
+			}
+		};
 		
-		match created {
-		    Ok(ids) => Ok(message),
+		match result {
+		    Ok(ids) => {
+				//TODO: Tell everyone
+
+				Ok(message)
+			},
 			Err(_) => Err(ErrorCode::Error),
 		}
 	}
@@ -62,12 +90,7 @@ impl RealmChat for RealmChatServer {
 	}
 
 	async fn get_rooms(self, context: Context) -> Result<Vec<Room>, ErrorCode> {
-		let result: surrealdb::Result<Vec<Room>> = self.db.select("room").await;
-		
-		match result {
-			Ok(rooms) => Ok(rooms),
-			Err(_) => Err(ErrorCode::Error),
-		}
+		todo!()
 	}
 
 	async fn get_room(self, context: Context, roomid: String) -> Result<Room, ErrorCode> {
@@ -79,26 +102,10 @@ impl RealmChat for RealmChatServer {
 	}
 
 	async fn get_joined_users(self, context: Context) -> Result<Vec<User>, ErrorCode> {
-		let result: surrealdb::Result<Vec<User>> = self.db.select("user").await;
-
-		match result {
-			Ok(users) => Ok(users),
-			Err(_) => Err(ErrorCode::Error),
-		}	
+		todo!()	
 	}
 
 	async fn get_online_users(self, context: Context) -> Result<Vec<User>, ErrorCode> {
-		let result: surrealdb::Result<Response> = self.db.query("SELECT * FROM user WHERE online = true").await; //TODO: We're switching to MySQL
-
-		match result {
-			Ok(mut response) => {
-				let users: Result<Vec<User>, Error> = response.take(0);
-				match users {
-					Ok(vec) => Ok(vec),
-					Err(_) => Err(ErrorCode::Error),
-				}
-			},
-			Err(_) => Err(ErrorCode::Error),
-		}
+		todo!()
 	}
 }

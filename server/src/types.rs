@@ -1,10 +1,4 @@
-use surrealdb::sql::Thing;
 use tarpc::serde::{Deserialize, Serialize};
-
-#[derive(Debug, Deserialize)]
-pub struct Record {
-	id: Thing,
-}
 
 #[tarpc::service]
 pub trait RealmChat {
@@ -31,7 +25,7 @@ pub trait RealmChat {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ErrorCode {
-	None = 0,
+	None,
 	Error,
 	Unauthorized,
 	NotFound,
@@ -39,8 +33,8 @@ pub enum ErrorCode {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
-	pub guid: String,
-	pub timestamp: u64,
+	pub id: u32,
+	pub timestamp: u64, //TODO: Change to a real time for SQL
 	pub user: User,
 	pub room: Room,
 	pub data: MessageData,
@@ -55,7 +49,6 @@ pub enum MessageData {
 	Edit(Edit), //NOTE: Have to be the owner of the referencing_guid
 	Reaction(Reaction),
 	Redaction(Redaction),
-	TypingIndicator(bool), //isTyping
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,29 +58,30 @@ pub struct Attachment {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Reply {
-	pub referencing_guid: String,
+	pub referencing_id: u32,
 	pub text: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Edit {
-	pub referencing_guid: String,
+	pub referencing_id: u32,
 	pub text: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Reaction {
-	pub referencing_guid: String,
+	pub referencing_id: u32,
 	pub emoji: String
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Redaction {
-	pub referencing_guid: String,
+	pub referencing_id: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
+	pub id: u32,
 	pub userid: String,
 	pub name: String,
 	pub online: bool,
@@ -96,6 +90,7 @@ pub struct User {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Room {
+	pub id: u32,
 	pub roomid: String,
 	pub name: String,
 	//TODO

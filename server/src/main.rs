@@ -1,11 +1,10 @@
+use std::env;
 use std::future::Future;
 use std::net::{IpAddr, Ipv6Addr};
-use std::sync::Arc;
+use dotenvy::dotenv;
 use futures::future::{self};
 use futures::StreamExt;
-use surrealdb::engine::remote::ws::Ws;
-use surrealdb::opt::auth::Root;
-use surrealdb::Surreal;
+use sqlx::mysql::MySqlPoolOptions;
 use tarpc::{
     server::{Channel},
     tokio_serde::formats::Json,
@@ -21,17 +20,47 @@ async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Connect to the server
-    let db = Arc::new(Surreal::new::<Ws>("127.0.0.1:8000").await?);
+    dotenv().ok();
+    
+    let db_pool = MySqlPoolOptions::new()
+        .max_connections(64)
+        .connect(env::var("DATABASE_URL").expect("DATABASE_URL must be set").as_str()).await?;
+    
+    sqlx::query(
+        "CREATE DATABASE IF NOT EXISTS realmchat; USE realmchat;"
+    ).fetch_one(&db_pool).await?;
 
-    // Signin as a namespace, database, or root user
-    db.signin(Root {
-        username: "root",
-        password: "root",
-    }).await?;
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS room (
+                id SERIAL,
+                room_id VARCHAR(255) NOT NULL,
+                name VARCHAR(255) NOT NULL
+            );"
+    ).execute(&db_pool).await?;
 
-    // Select a specific namespace / database
-    db.use_ns("realmchat").use_db("test").await?;
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS user (
+                id SERIAL,
+                user_id VARCHAR(255) NOT NULL,
+                name VARCHAR(255) NOT NULL,
+                online BOOL NOT NULL
+            );"
+    ).execute(&db_pool).await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS message (
+                id SERIAL,
+                timestamp DATETIME NOT NULL,
+                user INT NOT NULL,
+                room INT NOT NULL,
+                type ENUM('text', 'attachment', 'reply', 'edit', 'reaction', 'redaction') NOT NULL,
+
+                msgText TEXT,
+                referencingID INT,
+                emoji TEXT,
+                redaction BOOL
+            );"
+    ).execute(&db_pool).await?;
     
     let server_addr = (IpAddr::V6(Ipv6Addr::LOCALHOST), 5051);
 
