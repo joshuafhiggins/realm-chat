@@ -14,8 +14,8 @@ Cargo.lock
 *.pdb
 /.idea
 
-Client/.idea
-Client/.gradle
-Client/build
+client/.idea
+client/.gradle
+client/build
 
 Server/.idea
