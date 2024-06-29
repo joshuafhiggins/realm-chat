@@ -34,7 +34,9 @@ async fn main() -> anyhow::Result<()> {
         "CREATE TABLE IF NOT EXISTS room (
                 id SERIAL,
                 room_id VARCHAR(255) NOT NULL,
-                name VARCHAR(255) NOT NULL
+                name VARCHAR(255) NOT NULL,
+                admin_only_send BOOL NOT NULL,
+                admin_only_view BOOL NOT NULL
             );"
     ).execute(&db_pool).await?;
 
@@ -43,7 +45,8 @@ async fn main() -> anyhow::Result<()> {
                 id SERIAL,
                 user_id VARCHAR(255) NOT NULL,
                 name VARCHAR(255) NOT NULL,
-                online BOOL NOT NULL
+                online BOOL NOT NULL,
+                admin BOOL NOT NULL
             );"
     ).execute(&db_pool).await?;
 
