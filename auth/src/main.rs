@@ -3,6 +3,7 @@ use std::future::Future;
 use std::net::{IpAddr, Ipv6Addr};
 use dotenvy::dotenv;
 use futures::{future, StreamExt};
+use sqlx::mysql::MySqlPoolOptions;
 use tarpc::server::{BaseChannel, Channel};
 use tarpc::server::incoming::Incoming;
 use tarpc::tokio_serde::formats::Json;
@@ -16,6 +17,28 @@ async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv().ok();
+
+    let db_pool = MySqlPoolOptions::new()
+        .max_connections(64)
+        .connect(env::var("DATABASE_URL").expect("DATABASE_URL must be set").as_str()).await?;
+
+    sqlx::query(
+        "CREATE DATABASE IF NOT EXISTS realmauth; USE realmauth;"
+    ).fetch_one(&db_pool).await?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS user (
+                id SERIAL,
+                username VARCHAR(255) NOT NULL,
+                email VARCHAR(255) NOT NULL,
+                login_code INT(6),
+                tokens TEXT,
+                google_oauth VARCHAR(255),
+                apple_oauth VARCHAR(255),
+                github_oauth VARCHAR(255),
+                discord_oauth VARCHAR(255)
+             );"
+    ).execute(&db_pool).await?;
 
     let server_addr = (IpAddr::V6(Ipv6Addr::LOCALHOST), env::var("PORT").expect("PORT must be set").parse::<u16>().unwrap());
 
