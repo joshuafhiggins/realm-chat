@@ -8,27 +8,18 @@ use crate::types::ErrorCode::*;
 
 #[derive(Clone)]
 pub struct RealmChatServer {
+	pub server_id: String,
 	pub socket: SocketAddr, 
 	pub db_pool: Pool<MySql>,
 	pub typing_users: Vec<(u32, u32)> //NOTE: userid, roomid
-}
-
-impl RealmChatServer {
-	pub fn new(socket: SocketAddr, db_pool: Pool<MySql>) -> RealmChatServer {
-		RealmChatServer {
-			socket,
-			db_pool,
-			typing_users: Vec::new(),
-		}
-	}
-}
+} //TODO: Cache for auth
 
 impl RealmChat for RealmChatServer {
 	async fn test(self, _: Context, name: String) -> String {
 		format!("Hello, {name}!")
 	}
 
-	async fn send_message(self, _: Context, message: Message) -> Result<Message, ErrorCode> {
+	async fn send_message(self, _: Context, auth_token: String, message: Message) -> Result<Message, ErrorCode> {
 		//TODO: verify authentication somehow for edits and redactions
 		
 		let result = match &message.data {
@@ -70,19 +61,19 @@ impl RealmChat for RealmChatServer {
 		}
 	}
 
-	async fn start_typing(self, _: Context) -> ErrorCode { //TODO: auth for all of these
+	async fn start_typing(self, _: Context, auth_token: String) -> ErrorCode { //TODO: auth for all of these
 		todo!()
 	}
 
-	async fn stop_typing(self, _: Context) -> ErrorCode {
+	async fn stop_typing(self, _: Context, auth_token: String) -> ErrorCode {
 		todo!()
 	}
 
-	async fn keep_typing(self, _: Context) -> ErrorCode {
+	async fn keep_typing(self, _: Context, auth_token: String) -> ErrorCode {
 		todo!()
 	}
 
-	async fn get_message_from_id(self, _: Context, id: u32) -> Result<Message, ErrorCode> {
+	async fn get_message_from_id(self, _: Context, auth_token: String, id: u32) -> Result<Message, ErrorCode> {
 		//TODO: Auth for admin room
 		let result = sqlx::query(
 			"SELECT * FROM message INNER JOIN room ON message.room = room.id INNER JOIN user ON message.user = user.id WHERE message.id = ?"
@@ -98,12 +89,12 @@ impl RealmChat for RealmChatServer {
 		}
 	}
 
-	async fn get_messages_since(self, _: Context, time: DateTime<Utc>) -> Result<Vec<Message>, ErrorCode> {
+	async fn get_messages_since(self, _: Context, auth_token: String, time: DateTime<Utc>) -> Result<Vec<Message>, ErrorCode> {
 		//TODO: Auth for admin rooms
 		todo!()
 	}
 
-	async fn get_rooms(self, _: Context) -> Result<Vec<Room>, ErrorCode> {
+	async fn get_rooms(self, _: Context, auth_token: String) -> Result<Vec<Room>, ErrorCode> {
 		//TODO: Auth for admin rooms!
 		let result = sqlx::query("SELECT * FROM room").fetch_all(&self.db_pool).await;
 		let mut rooms: Vec<Room> = Vec::new();
@@ -125,7 +116,7 @@ impl RealmChat for RealmChatServer {
 		}
 	}
 
-	async fn get_room(self, _: Context, roomid: String) -> Result<Room, ErrorCode> {
+	async fn get_room(self, _: Context, auth_token: String, roomid: String) -> Result<Room, ErrorCode> {
 		//TODO: Auth for admin rooms!
 		let result = sqlx::query("SELECT * FROM room WHERE room_id = ?").bind(roomid).fetch_one(&self.db_pool).await;
 		
@@ -172,6 +163,15 @@ impl RealmChat for RealmChatServer {
 }
 
 impl RealmChatServer {
+	pub fn new(server_id: String, socket: SocketAddr, db_pool: Pool<MySql>) -> RealmChatServer {
+		RealmChatServer {
+			server_id,
+			socket,
+			db_pool,
+			typing_users: Vec::new(),
+		}
+	}
+	
 	fn dbroom_to_room(&self, row: MySqlRow) -> Result<Room, ErrorCode> {
 		let id: Result<u32, _> = row.try_get("id");
 		let roomid: Result<String, _> = row.try_get("user_id");
