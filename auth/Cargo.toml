@@ -1,5 +1,5 @@
 [package]
-name = "realm_server"
+name = "realm_auth"
 version = "0.1.0"
 edition = "2021"
 
@@ -10,8 +10,5 @@ tarpc = { version = "0.34.0", features = ["full"] }
 tokio = { version = "1.0", features = ["macros", "net", "rt-multi-thread"] }
 tracing = "0.1.40"
 serde = { version = "1.0.203", features = ["derive"] }
-emojis = "0.6.2"
 chrono = { version = "0.4.24", features = ["serde"] }
-sqlx = { version = "0.7", features = [ "runtime-tokio", "tls-rustls", "mysql", "chrono" ] }
 dotenvy = "0.15"
-realm_auth = { path = "../auth" }
