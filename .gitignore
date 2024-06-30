@@ -18,4 +18,6 @@ client/.idea
 client/.gradle
 client/build
 
-Server/.idea
+server/.idea
+server/.env
+auth/.env
