@@ -21,3 +21,4 @@ client/build
 server/.idea
 server/.env
 auth/.env
+auth/.env
