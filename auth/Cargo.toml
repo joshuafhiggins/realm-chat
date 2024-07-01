@@ -13,3 +13,5 @@ serde = { version = "1.0.203", features = ["derive"] }
 chrono = { version = "0.4.24", features = ["serde"] }
 dotenvy = "0.15"
 sqlx = { version = "0.7", features = [ "runtime-tokio", "tls-rustls", "mysql", "chrono" ] }
+sha3 = "0.10.8"
+hex = "0.4.3"
