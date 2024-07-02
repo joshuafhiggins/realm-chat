@@ -4,16 +4,18 @@ use serde::{Deserialize, Serialize};
 pub trait RealmAuth {
     async fn test(name: String) -> String;
     async fn server_token_validation(server_token: String, username: String, server_id: String, domain: String, tarpc_port: u16) -> bool;
-    async fn create_account(username: String, email: String, avatar: String) -> Result<String, ErrorCode>;
+    async fn create_account_flow(username: String, email: String) -> ErrorCode; //NOTE: Still require sign in flow
+    async fn finish_account_flow(username: String, login_code: u16, avatar: String) -> Result<String, ErrorCode>;
     async fn create_login_flow(username: String) -> ErrorCode;
-    async fn create_token_from_login(username: String, login_code: u16) -> Result<String, ErrorCode>;
+    async fn finish_login_flow(username: String, login_code: u16) -> Result<String, ErrorCode>;
     
     //NOTE: Need to be the user
-    async fn change_email_flow(username: String, token: String) -> ErrorCode;
-    async fn resolve_email_flow(username: String, token: String, login_code: u16, new_email: String) -> ErrorCode;
+    async fn change_email_flow(username: String, new_email: String, token: String) -> ErrorCode;
+    async fn finish_change_email_flow(username: String, token: String, login_code: u16) -> ErrorCode;
     async fn change_username(username: String, token: String, new_username: String) -> ErrorCode;
-    async fn change_avatar(username: String, token: String, avatar: String) -> ErrorCode;
+    async fn change_avatar(username: String, token: String, new_avatar: String) -> ErrorCode;
     async fn get_all_data(username: String, token: String) -> Result<AuthUser, ErrorCode>;
+    async fn sign_out(username: String, token: String) -> ErrorCode;
     
     //NOTE: Anyone can call
     async fn get_avatar_for_user(username: String) -> Result<String, ErrorCode>;
@@ -27,17 +29,20 @@ pub trait RealmAuth {
     // Get avatar
     // Get all userdata if you are the user
     // Server token validation
+    // Logout
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ErrorCode {
-    None,
+    NoError,
     Error,
+    Unauthorized,
     EmailTaken,
     UsernameTaken,
     InvalidLoginCode,
     InvalidImage,
     InvalidUsername,
+    InvalidToken,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,7 +52,7 @@ pub struct AuthUser {
     pub email: String,
     pub avatar: String,
     pub login_code: Option<u16>,
-    pub tokens: Option<Vec<String>>,
+    pub bigtoken: Option<String>,
     pub google_oauth: Option<String>,
     pub apple_oauth: Option<String>,
     pub github_oauth: Option<String>,
