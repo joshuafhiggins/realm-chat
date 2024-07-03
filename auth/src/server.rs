@@ -1,27 +1,34 @@
 use std::net::SocketAddr;
-
+use chrono::Utc;
+use mail_send::{Credentials, SmtpClientBuilder};
+use mail_send::mail_builder::MessageBuilder;
 use rand::Rng;
 use sha3::{Digest, Sha3_256};
 use sha3::digest::Update;
 use sqlx::{MySql, Pool, Row};
+use sqlx::mysql::{MySqlQueryResult, MySqlRow};
 use tarpc::context::Context;
 
-use crate::types::{AuthUser, ErrorCode, RealmAuth};
+use crate::types::{AuthEmail, AuthUser, ErrorCode, RealmAuth};
 use crate::types::ErrorCode::*;
 
 #[derive(Clone)]
 pub struct RealmAuthServer {
     pub socket: SocketAddr,
     pub db_pool: Pool<MySql>,
+    pub auth_email: AuthEmail,
+    pub template_html: String,
+    pub template_txt: String,
 }
 
-//TODO: USERNAME FORMATTING!
-
 impl RealmAuthServer {
-    pub fn new(socket: SocketAddr, db_pool: Pool<MySql>) -> RealmAuthServer {
+    pub fn new(socket: SocketAddr, db_pool: Pool<MySql>, auth_email: AuthEmail) -> RealmAuthServer {
         RealmAuthServer {
             socket,
             db_pool,
+            auth_email,
+            template_html: std::fs::read_to_string("./login_email.html").expect("A login_email.html file is needed"),
+            template_txt: std::fs::read_to_string("./login_email.txt").expect("A login_email.txt file is needed"),
         }
     }
     
@@ -81,6 +88,40 @@ impl RealmAuthServer {
             Err(_) => Err(InvalidUsername),
         }
     }
+    
+    pub async fn send_login_message(&self, username: &str, email: &str, login_code: u16) -> ErrorCode {
+        let message = MessageBuilder::new()
+            .from((self.auth_email.auth_name.clone(), self.auth_email.auth_username.clone()))
+            .to(vec![
+                (username, email),
+            ])
+            .subject(format!("Realm confirmation code: {}", &login_code))
+            .html_body(self.template_html.replace("{}", &login_code.to_string()))
+            .text_body(self.template_txt.replace("{}", &login_code.to_string()));
+        
+        let result = SmtpClientBuilder::new(&self.auth_email.server_address, self.auth_email.server_port)
+            .implicit_tls(false)
+            .credentials(Credentials::new(&self.auth_email.auth_username, &self.auth_email.auth_password))
+            .connect()
+            .await;
+        
+        match result {
+            Ok(mut client) => {
+                let result = client.send(message).await;
+                match result {
+                    Ok(_) => {
+                        NoError
+                    }
+                    Err(_) => {
+                        UnableToSendMail
+                    }
+                }
+            }
+            Err(_) => {
+                UnableToConnectToMail
+            }
+        }
+    }
 }
 
 impl RealmAuth for RealmAuthServer {
@@ -110,29 +151,124 @@ impl RealmAuth for RealmAuthServer {
     }
 
     async fn create_account_flow(self, _: Context, username: String, email: String) -> ErrorCode {
-        todo!()
+        //TODO: USERNAME FORMATTING!
+        
+        
+
+        let result = self.is_username_taken(&username).await;
+        match result {
+            Ok(taken) => {
+                if taken {
+                    return UsernameTaken
+                }
+            }
+            Err(error) => return error
+        }
+        
+        let result = self.is_email_taken(&email).await;
+        match result {
+            Ok(taken) => {
+                if taken {
+                    return EmailTaken
+                }
+            }
+            Err(error) => return error
+        }
+        
+        let code = self.gen_login_code();
+        let result = self.send_login_message(&username, &email, code).await;
+        
+        if result != NoError {
+            return result;
+        }
+        
+        let result = sqlx::query("INSERT INTO user (username, email, avatar, login_code, tokens) VALUES (?, ?, '', ?, '')")
+            .bind(&username).bind(&email).bind(code).execute(&self.db_pool).await;
+        
+        match result {
+            Ok(_) => NoError,
+            Err(_) => Error
+        }
     }
 
-    async fn finish_account_flow(self, _: Context, username: String, login_code: u16, avatar: String) -> Result<String, ErrorCode> {
-        todo!()
-    }
+    async fn create_login_flow(self, _: Context, mut username: Option<String>, mut email: Option<String>) -> ErrorCode {
+        if username.is_none() && email.is_none() {
+            return Error
+        }
+        
+        if username.is_none() {
+            let result = sqlx::query("SELECT username FROM user WHERE email = ?;")
+                .bind(&email.clone().unwrap())
+                .fetch_one(&self.db_pool).await;
+            
+            match result {
+                Ok(row) => {
+                    username = row.try_get("username").unwrap();
+                }
+                Err(_) => return InvalidEmail
+            }
+        }
 
-    async fn create_login_flow(self, _: Context, username: String) -> ErrorCode {
+        if email.is_none() {
+            let result = sqlx::query("SELECT email FROM user WHERE username = ?;")
+                .bind(&username.clone().unwrap())
+                .fetch_one(&self.db_pool).await;
+
+            match result {
+                Ok(row) => {
+                    email = row.try_get("email").unwrap();
+                }
+                Err(_) => return InvalidUsername
+            }
+        }
+        
+        let code = self.gen_login_code();
+        
         let result = sqlx::query("UPDATE user SET login_code = ? WHERE username = ?;")
-            .bind(self.gen_login_code())
-            .bind(username)
+            .bind(code)
+            .bind(&username)
             .execute(&self.db_pool).await;
         
         match result {
-            Ok(_) => { 
-                todo!() //TODO: Emails!
-            },
+            Ok(_) => self.send_login_message(&username.unwrap(), &email.unwrap(), code).await,
             Err(_) => InvalidUsername
         }
     }
 
     async fn finish_login_flow(self, _: Context, username: String, login_code: u16) -> Result<String, ErrorCode> {
-        todo!()
+        let result = sqlx::query("SELECT login_code FROM user WHERE username = ?;")
+            .bind(&username)
+            .fetch_one(&self.db_pool).await;
+        
+        match result {
+            Ok(row) => {
+                if row.try_get::<u16, _>("login_code").unwrap() != login_code {
+                    return Err(InvalidLoginCode)
+                }
+            }
+            Err(_) => return Err(InvalidUsername)
+        }
+        
+        let _ = sqlx::query("UPDATE user SET login_code = NULL WHERE username = ?").bind(&username).execute(&self.db_pool).await;
+
+        let hash = Sha3_256::new().chain(format!("{}{}{}", username, login_code, Utc::now().to_utc())).finalize();
+        let token = hex::encode(hash);
+
+        let result = sqlx::query("SELECT tokens FROM user WHERE username = ?").bind(&username).fetch_one(&self.db_pool).await;
+        match result {
+            Ok(row) => {
+                let token_long: &str = row.try_get("tokens").unwrap();
+                let mut tokens = token_long.split(',').collect::<Vec<&str>>();
+                tokens.push(&token);
+
+                let result = sqlx::query("UPDATE user SET tokens = ? WHERE username = ?").bind(tokens.join(",")).bind(&username).execute(&self.db_pool).await;
+                match result {
+                    Ok(_) => Ok(token),
+                    Err(_) => Err(InvalidUsername)
+                }
+            }
+            Err(_) => Err(InvalidUsername)
+        }
     }
 
     async fn change_email_flow(self, _: Context, username: String, new_email: String, token: String) -> ErrorCode {
@@ -144,6 +280,9 @@ impl RealmAuth for RealmAuthServer {
     }
 
     async fn change_username(self, _: Context, username: String, token: String, new_username: String) -> ErrorCode {
+        //TODO: USERNAME FORMATTING!
+
+
         let result = self.is_authorized(&username, &token).await;
         match result {
             Ok(authorized) => {

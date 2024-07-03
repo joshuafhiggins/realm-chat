@@ -1,0 +1,10 @@
+Confirm your email address
+Your 6 digit code is below-- enter it into Realm and you will be signed in
+
+{}
+
+If you didn't request this email, there's nothing to worry about it-- you can safely ignore it.
+
+    Realm
+    Need help? Email realm-support@abunchofknowtiwalls.com
+    © 2024 Realm, Inc.

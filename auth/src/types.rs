@@ -5,8 +5,7 @@ pub trait RealmAuth {
     async fn test(name: String) -> String;
     async fn server_token_validation(server_token: String, username: String, server_id: String, domain: String, tarpc_port: u16) -> bool;
     async fn create_account_flow(username: String, email: String) -> ErrorCode; //NOTE: Still require sign in flow
-    async fn finish_account_flow(username: String, login_code: u16, avatar: String) -> Result<String, ErrorCode>;
-    async fn create_login_flow(username: String) -> ErrorCode;
+    async fn create_login_flow(username: Option<String>, email: Option<String>) -> ErrorCode;
     async fn finish_login_flow(username: String, login_code: u16) -> Result<String, ErrorCode>;
     
     //NOTE: Need to be the user
@@ -23,16 +22,10 @@ pub trait RealmAuth {
     // Create account
     // Change email
     // Change username
-    // Change/Upload/Delete avatar
-    // OAuth login, check against email, store token, take avatar
-    //      Google, Apple, GitHub, Discord
-    // Get avatar
-    // Get all userdata if you are the user
-    // Server token validation
-    // Logout
+    // OAuth login, check against email, store token, take avatar: Google, Apple, GitHub, Discord
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ErrorCode {
     NoError,
     Error,
@@ -42,7 +35,10 @@ pub enum ErrorCode {
     InvalidLoginCode,
     InvalidImage,
     InvalidUsername,
+    InvalidEmail,
     InvalidToken,
+    UnableToConnectToMail,
+    UnableToSendMail,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,4 +53,14 @@ pub struct AuthUser {
     pub apple_oauth: Option<String>,
     pub github_oauth: Option<String>,
     pub discord_oauth: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthEmail {
+    pub server_address: String,
+    pub server_port: u16,
+    pub auth_name: String,
+    pub auth_from_address: String,
+    pub auth_username: String,
+    pub auth_password: String,
 }
