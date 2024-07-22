@@ -122,6 +122,22 @@ impl RealmAuthServer {
             }
         }
     }
+    
+    pub async fn is_login_code_valid(&self, username: &str, login_code: u16) -> Result<bool, ErrorCode> {
+        let result = sqlx::query("SELECT login_code FROM user WHERE username = ?;")
+            .bind(username)
+            .fetch_one(&self.db_pool).await;
+
+        match result {
+            Ok(row) => {
+                if row.try_get::<u16, _>("login_code").unwrap() != login_code {
+                    return Ok(false)
+                }
+                Ok(true)
+            }
+            Err(_) => Err(InvalidUsername)
+        } 
+    }
 }
 
 impl RealmAuth for RealmAuthServer {
@@ -236,17 +252,8 @@ impl RealmAuth for RealmAuthServer {
     }
 
     async fn finish_login_flow(self, _: Context, username: String, login_code: u16) -> Result<String, ErrorCode> {
-        let result = sqlx::query("SELECT login_code FROM user WHERE username = ?;")
-            .bind(&username)
-            .fetch_one(&self.db_pool).await;
-        
-        match result {
-            Ok(row) => {
-                if row.try_get::<u16, _>("login_code").unwrap() != login_code {
-                    return Err(InvalidLoginCode)
-                }
-            }
-            Err(_) => return Err(InvalidUsername)
+        if !self.is_login_code_valid(&username, login_code).await? {
+            return Err(InvalidLoginCode)
         }
         
         let _ = sqlx::query("UPDATE user SET login_code = NULL WHERE username = ?").bind(&username).execute(&self.db_pool).await;
@@ -261,7 +268,10 @@ impl RealmAuth for RealmAuthServer {
                 let mut tokens = token_long.split(',').collect::<Vec<&str>>();
                 tokens.push(&token);
 
-                let result = sqlx::query("UPDATE user SET tokens = ? WHERE username = ?").bind(tokens.join(",")).bind(&username).execute(&self.db_pool).await;
+                let result = sqlx::query("UPDATE user SET tokens = ? WHERE username = ?")
+                    .bind(tokens.join(",")) // TODO: This doesn't seem right and may cause problems
+                    .bind(&username)
+                    .execute(&self.db_pool).await;
                 match result {
                     Ok(_) => Ok(token),
                     Err(_) => Err(InvalidUsername)
@@ -272,11 +282,83 @@ impl RealmAuth for RealmAuthServer {
     }
 
     async fn change_email_flow(self, _: Context, username: String, new_email: String, token: String) -> ErrorCode {
-        todo!()
+        let result = self.is_authorized(&username, &token).await;
+        match result {
+            Ok(authorized) => {
+                if !authorized {
+                    return Unauthorized
+                }
+            }
+            Err(error) => return error
+        }
+
+        let result = self.is_email_taken(&new_email).await;
+        match result {
+            Ok(taken) => {
+                if taken {
+                    return EmailTaken
+                }
+            }
+            Err(error) => return error
+        }
+        
+        let result = sqlx::query("UPDATE user SET new_email = ? WHERE username = ?")
+            .bind(&new_email)
+            .bind(&username)
+            .execute(&self.db_pool).await;
+        match result {
+            Ok(_) => {}
+            Err(_) => return InvalidUsername
+        }
+
+        let code = self.gen_login_code();
+
+        let result = sqlx::query("UPDATE user SET login_code = ? WHERE username = ?;")
+            .bind(code)
+            .bind(&username)
+            .execute(&self.db_pool).await;
+
+        match result {
+            Ok(_) => self.send_login_message(&username, &new_email, code).await,
+            Err(_) => InvalidUsername
+        }
     }
 
-    async fn finish_change_email_flow(self, _: Context, username: String, token: String, login_code: u16) -> ErrorCode {
-        todo!()
+    async fn finish_change_email_flow(self, _: Context, username: String, new_email: String, token: String, login_code: u16) -> ErrorCode {
+        let result = self.is_authorized(&username, &token).await;
+        match result {
+            Ok(authorized) => {
+                if !authorized {
+                    return Unauthorized
+                }
+            }
+            Err(error) => return error
+        }
+
+        let result = self.is_email_taken(&new_email).await;
+        match result {
+            Ok(taken) => {
+                if taken {
+                    return EmailTaken
+                }
+            }
+            Err(error) => return error
+        }
+
+        if !self.is_login_code_valid(&username, login_code).await.unwrap() {
+            return InvalidLoginCode
+        }
+
+        let _ = sqlx::query("UPDATE user SET new_email = NULL WHERE username = ?")
+            .bind(&username)
+            .execute(&self.db_pool).await;
+        
+        let _ = sqlx::query("UPDATE user SET email = ? WHERE username = ?")
+            .bind(&new_email)
+            .bind(&username)
+            .execute(&self.db_pool).await;
+        
+        NoError
     }
 
     async fn change_username(self, _: Context, username: String, token: String, new_username: String) -> ErrorCode {

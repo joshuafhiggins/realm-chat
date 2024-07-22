@@ -10,7 +10,7 @@ pub trait RealmAuth {
     
     //NOTE: Need to be the user
     async fn change_email_flow(username: String, new_email: String, token: String) -> ErrorCode;
-    async fn finish_change_email_flow(username: String, token: String, login_code: u16) -> ErrorCode;
+    async fn finish_change_email_flow(username: String, new_email: String, token: String, login_code: u16) -> ErrorCode;
     async fn change_username(username: String, token: String, new_username: String) -> ErrorCode;
     async fn change_avatar(username: String, token: String, new_avatar: String) -> ErrorCode;
     async fn get_all_data(username: String, token: String) -> Result<AuthUser, ErrorCode>;
@@ -19,8 +19,8 @@ pub trait RealmAuth {
     //NOTE: Anyone can call
     async fn get_avatar_for_user(username: String) -> Result<String, ErrorCode>;
     //TODO:
+    // Refactor all to use Result<_, ErrorCode> for ones with only -> ErrorCode
     // Create account
-    // Change email
     // Change username
     // OAuth login, check against email, store token, take avatar: Google, Apple, GitHub, Discord
 }
