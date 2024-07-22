@@ -3,8 +3,9 @@ use chrono::{DateTime, Utc};
 use sqlx::{Error, MySql, Pool, Row};
 use sqlx::mysql::MySqlRow;
 use tarpc::context::Context;
-use crate::types::{Edit, ErrorCode, Message, MessageData, Reaction, RealmChat, Redaction, Reply, Room, User};
-use crate::types::ErrorCode::*;
+use crate::types::{Edit, Message, MessageData, Reaction, RealmChat, Redaction, Reply, Room, User};
+use realm_shared::types::ErrorCode::*;
+use realm_shared::types::ErrorCode;
 
 #[derive(Clone)]
 pub struct RealmChatServer {
@@ -84,7 +85,7 @@ impl RealmChat for RealmChatServer {
 				self.dbmessage_to_message(row)
 			},
 			Err(_) => {
-				Err(NotFound)
+				Err(MessageNotFound)
 			},
 		}
 	}
@@ -122,7 +123,7 @@ impl RealmChat for RealmChatServer {
 		
 		match result {
 		    Ok(row) => { self.dbroom_to_room(row) },
-			Err(_) => Err(NotFound),
+			Err(_) => Err(RoomNotFound),
 		}
 	}
 
@@ -131,7 +132,7 @@ impl RealmChat for RealmChatServer {
 		
 		match result {
 		    Ok(row) => { self.dbuser_to_user(row) },
-			Err(_) => Err(NotFound),
+			Err(_) => Err(UserNotFound),
 		}
 	}
 
@@ -180,7 +181,7 @@ impl RealmChatServer {
 		let admin_only_view: Result<bool, _> = row.try_get("admin_only_view");
 
 		if id.is_err() {
-			return Err(FailedToUnwrapDB)
+			return Err(MalformedDBResponse)
 		}
 
 		Ok(Room {
@@ -200,7 +201,7 @@ impl RealmChatServer {
 		let admin: Result<bool, _> = row.try_get("admin");
 		
 		if id.is_err() {
-			return Err(FailedToUnwrapDB)
+			return Err(MalformedDBResponse)
 		}
 		
 		Ok(User {
@@ -220,7 +221,7 @@ impl RealmChatServer {
 		};
 
 		if type_enum == "" {
-			return Err(FailedToUnwrapDB)
+			return Err(MalformedDBResponse)
 		}
 
 		let id: u32 = row.try_get("message.id").unwrap();
@@ -295,7 +296,7 @@ impl RealmChatServer {
 					}),
 				})
 			}
-			_ => { Err(FailedToUnwrapDB) }
+			_ => { Err(MalformedDBResponse) }
 		}
 	}
 }

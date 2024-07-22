@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use realm_shared::types::ErrorCode;
 
 #[tarpc::service]
 pub trait RealmAuth {
@@ -19,21 +20,6 @@ pub trait RealmAuth {
     //NOTE: Anyone can call
     async fn get_avatar_for_user(username: String) -> Result<String, ErrorCode>;
     // TODO: OAuth login, check against email, store token, take avatar: Google, Apple, GitHub, Discord
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum ErrorCode {
-    Error,
-    Unauthorized,
-    EmailTaken,
-    UsernameTaken,
-    InvalidLoginCode,
-    InvalidImage,
-    InvalidUsername,
-    InvalidEmail,
-    InvalidToken,
-    UnableToConnectToMail,
-    UnableToSendMail,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

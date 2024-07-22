@@ -11,8 +11,9 @@ use sha3::digest::Update;
 use sqlx::{MySql, Pool, Row};
 use tarpc::context::Context;
 
-use crate::types::{AuthEmail, AuthUser, ErrorCode, RealmAuth};
-use crate::types::ErrorCode::*;
+use crate::types::{AuthEmail, AuthUser, RealmAuth};
+use realm_shared::types::ErrorCode;
+use realm_shared::types::ErrorCode::*;
 
 #[derive(Clone)]
 pub struct RealmAuthServer {

@@ -1,10 +1,11 @@
 use chrono::{DateTime, TimeZone, Utc};
 use tarpc::serde::{Deserialize, Serialize};
+use realm_shared::types::ErrorCode;
 
 #[tarpc::service]
 pub trait RealmChat {
 	async fn test(name: String) -> String;
-	
+
 	//TODO: Any user authorized as themselves
 	async fn send_message(auth_token: String, message: Message) -> Result<Message, ErrorCode>;
 	async fn start_typing(auth_token: String) -> ErrorCode;
@@ -26,15 +27,6 @@ pub trait RealmChat {
 	// kick user
 	// ban user
 	// unban user
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ErrorCode {
-	None,
-	Error,
-	Unauthorized,
-	NotFound,
-	FailedToUnwrapDB,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
