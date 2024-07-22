@@ -89,7 +89,7 @@ impl RealmAuthServer {
         }
     }
     
-    pub async fn send_login_message(&self, username: &str, email: &str, login_code: u16) -> ErrorCode {
+    pub async fn send_login_message(&self, username: &str, email: &str, login_code: u16) -> Result<(), ErrorCode> {
         let message = MessageBuilder::new()
             .from((self.auth_email.auth_name.clone(), self.auth_email.auth_username.clone()))
             .to(vec![
@@ -110,15 +110,15 @@ impl RealmAuthServer {
                 let result = client.send(message).await;
                 match result {
                     Ok(_) => {
-                        NoError
+                        Ok(())
                     }
                     Err(_) => {
-                        UnableToSendMail
+                        Err(UnableToSendMail)
                     }
                 }
             }
             Err(_) => {
-                UnableToConnectToMail
+                Err(UnableToConnectToMail)
             }
         }
     }
@@ -166,50 +166,32 @@ impl RealmAuth for RealmAuthServer {
         }
     }
 
-    async fn create_account_flow(self, _: Context, username: String, email: String) -> ErrorCode {
+    async fn create_account_flow(self, _: Context, username: String, email: String) -> Result<(), ErrorCode> {
         //TODO: USERNAME FORMATTING!
         
-        
-
-        let result = self.is_username_taken(&username).await;
-        match result {
-            Ok(taken) => {
-                if taken {
-                    return UsernameTaken
-                }
-            }
-            Err(error) => return error
+        if self.is_username_taken(&username).await? {
+            return Err(UsernameTaken)
         }
         
-        let result = self.is_email_taken(&email).await;
-        match result {
-            Ok(taken) => {
-                if taken {
-                    return EmailTaken
-                }
-            }
-            Err(error) => return error
+        if self.is_email_taken(&email).await? {
+            return Err(EmailTaken)
         }
         
         let code = self.gen_login_code();
-        let result = self.send_login_message(&username, &email, code).await;
-        
-        if result != NoError {
-            return result;
-        }
+        let _ = self.send_login_message(&username, &email, code).await?;
         
         let result = sqlx::query("INSERT INTO user (username, email, avatar, login_code, tokens) VALUES (?, ?, '', ?, '')")
             .bind(&username).bind(&email).bind(code).execute(&self.db_pool).await;
         
         match result {
-            Ok(_) => NoError,
-            Err(_) => Error
+            Ok(_) => Ok(()),
+            Err(_) => Err(Error)
         }
     }
 
-    async fn create_login_flow(self, _: Context, mut username: Option<String>, mut email: Option<String>) -> ErrorCode {
+    async fn create_login_flow(self, _: Context, mut username: Option<String>, mut email: Option<String>) -> Result<(), ErrorCode> {
         if username.is_none() && email.is_none() {
-            return Error
+            return Err(Error)
         }
         
         if username.is_none() {
@@ -221,7 +203,7 @@ impl RealmAuth for RealmAuthServer {
                 Ok(row) => {
                     username = row.try_get("username").unwrap();
                 }
-                Err(_) => return InvalidEmail
+                Err(_) => return Err(InvalidEmail)
             }
         }
 
@@ -234,7 +216,7 @@ impl RealmAuth for RealmAuthServer {
                 Ok(row) => {
                     email = row.try_get("email").unwrap();
                 }
-                Err(_) => return InvalidUsername
+                Err(_) => return Err(InvalidUsername)
             }
         }
         
@@ -247,7 +229,7 @@ impl RealmAuth for RealmAuthServer {
         
         match result {
             Ok(_) => self.send_login_message(&username.unwrap(), &email.unwrap(), code).await,
-            Err(_) => InvalidUsername
+            Err(_) => Err(InvalidUsername)
         }
     }
 
@@ -281,25 +263,13 @@ impl RealmAuth for RealmAuthServer {
         }
     }
 
-    async fn change_email_flow(self, _: Context, username: String, new_email: String, token: String) -> ErrorCode {
-        let result = self.is_authorized(&username, &token).await;
-        match result {
-            Ok(authorized) => {
-                if !authorized {
-                    return Unauthorized
-                }
-            }
-            Err(error) => return error
+    async fn change_email_flow(self, _: Context, username: String, new_email: String, token: String) -> Result<(), ErrorCode> {
+        if !self.is_authorized(&username, &token).await? {
+            return Err(Unauthorized)
         }
-
-        let result = self.is_email_taken(&new_email).await;
-        match result {
-            Ok(taken) => {
-                if taken {
-                    return EmailTaken
-                }
-            }
-            Err(error) => return error
+        
+        if self.is_email_taken(&new_email).await? {
+            return Err(EmailTaken)
         }
         
         let result = sqlx::query("UPDATE user SET new_email = ? WHERE username = ?")
@@ -308,7 +278,7 @@ impl RealmAuth for RealmAuthServer {
             .execute(&self.db_pool).await;
         match result {
             Ok(_) => {}
-            Err(_) => return InvalidUsername
+            Err(_) => return Err(InvalidUsername)
         }
 
         let code = self.gen_login_code();
@@ -320,33 +290,21 @@ impl RealmAuth for RealmAuthServer {
 
         match result {
             Ok(_) => self.send_login_message(&username, &new_email, code).await,
-            Err(_) => InvalidUsername
+            Err(_) => Err(InvalidUsername)
         }
     }
 
-    async fn finish_change_email_flow(self, _: Context, username: String, new_email: String, token: String, login_code: u16) -> ErrorCode {
-        let result = self.is_authorized(&username, &token).await;
-        match result {
-            Ok(authorized) => {
-                if !authorized {
-                    return Unauthorized
-                }
-            }
-            Err(error) => return error
+    async fn finish_change_email_flow(self, _: Context, username: String, new_email: String, token: String, login_code: u16) -> Result<(), ErrorCode> {
+        if !self.is_authorized(&username, &token).await? {
+            return Err(Unauthorized)
         }
 
-        let result = self.is_email_taken(&new_email).await;
-        match result {
-            Ok(taken) => {
-                if taken {
-                    return EmailTaken
-                }
-            }
-            Err(error) => return error
+        if self.is_email_taken(&new_email).await? {
+            return Err(EmailTaken)
         }
 
-        if !self.is_login_code_valid(&username, login_code).await.unwrap() {
-            return InvalidLoginCode
+        if !self.is_login_code_valid(&username, login_code).await? {
+            return Err(InvalidLoginCode)
         }
 
         let _ = sqlx::query("UPDATE user SET new_email = NULL WHERE username = ?")
@@ -358,59 +316,41 @@ impl RealmAuth for RealmAuthServer {
             .bind(&username)
             .execute(&self.db_pool).await;
         
-        NoError
+        Ok(())
     }
 
-    async fn change_username(self, _: Context, username: String, token: String, new_username: String) -> ErrorCode {
+    async fn change_username(self, _: Context, username: String, token: String, new_username: String) -> Result<(), ErrorCode> {
         //TODO: USERNAME FORMATTING!
 
 
-        let result = self.is_authorized(&username, &token).await;
-        match result {
-            Ok(authorized) => {
-                if !authorized {
-                    return Unauthorized
-                }
-            }
-            Err(error) => return error
+        if !self.is_authorized(&username, &token).await? {
+            return Err(Unauthorized)
         }
-
-        let result = self.is_username_taken(&new_username).await;
-        match result {
-            Ok(is_taken) => {
-                if is_taken {
-                    return UsernameTaken
-                }
-            }
-            Err(error) => return error
+        
+        if self.is_username_taken(&new_username).await? {
+            return Err(UsernameTaken)
         }
 
         let result = sqlx::query("UPDATE user SET username = ? WHERE username = ?")
             .bind(&new_username)
             .bind(&username).execute(&self.db_pool).await;
         match result {
-            Ok(_) => NoError,
-            Err(_) => Error
+            Ok(_) => Ok(()),
+            Err(_) => Err(Error)
         }
     }
 
-    async fn change_avatar(self, _: Context, username: String, token: String, new_avatar: String) -> ErrorCode {
-        let result = self.is_authorized(&username, &token).await;
-        match result {
-            Ok(authorized) => {
-                if !authorized {
-                    return Unauthorized
-                }
-            }
-            Err(error) => return error
+    async fn change_avatar(self, _: Context, username: String, token: String, new_avatar: String) -> Result<(), ErrorCode> {
+        if !self.is_authorized(&username, &token).await? {
+            return Err(Unauthorized)
         }
 
         let result = sqlx::query("UPDATE user SET avatar = ? WHERE username = ?")
             .bind(&new_avatar)
             .bind(&username).execute(&self.db_pool).await;
         match result {
-            Ok(_) => NoError,
-            Err(_) => Error
+            Ok(_) => Ok(()),
+            Err(_) => Err(Error)
         }
     }
 
@@ -446,7 +386,7 @@ impl RealmAuth for RealmAuthServer {
         }
     }
 
-    async fn sign_out(self, _: Context, username: String, token: String) -> ErrorCode {
+    async fn sign_out(self, _: Context, username: String, token: String) -> Result<(), ErrorCode> {
         let result = sqlx::query("SELECT tokens FROM user WHERE username = ?")
             .bind(&username).fetch_one(&self.db_pool).await;
 
@@ -464,16 +404,16 @@ impl RealmAuth for RealmAuthServer {
                             .bind(&username)
                             .execute(&self.db_pool).await;
                         
-                        match result {
-                            Ok(_) => NoError,
-                            Err(_) => Error
+                        return match result {
+                            Ok(_) => Ok(()),
+                            Err(_) => Err(Error)
                         };
                     }
                 }
 
-                Unauthorized
+                Err(Unauthorized)
             },
-            Err(_) => InvalidUsername,
+            Err(_) => Err(InvalidUsername),
         }
     }
 

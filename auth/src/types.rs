@@ -4,22 +4,21 @@ use serde::{Deserialize, Serialize};
 pub trait RealmAuth {
     async fn test(name: String) -> String;
     async fn server_token_validation(server_token: String, username: String, server_id: String, domain: String, tarpc_port: u16) -> bool;
-    async fn create_account_flow(username: String, email: String) -> ErrorCode; //NOTE: Still require sign in flow
-    async fn create_login_flow(username: Option<String>, email: Option<String>) -> ErrorCode;
+    async fn create_account_flow(username: String, email: String) -> Result<(), ErrorCode>; //NOTE: Still require sign in flow
+    async fn create_login_flow(username: Option<String>, email: Option<String>) -> Result<(), ErrorCode>;
     async fn finish_login_flow(username: String, login_code: u16) -> Result<String, ErrorCode>;
     
     //NOTE: Need to be the user
-    async fn change_email_flow(username: String, new_email: String, token: String) -> ErrorCode;
-    async fn finish_change_email_flow(username: String, new_email: String, token: String, login_code: u16) -> ErrorCode;
-    async fn change_username(username: String, token: String, new_username: String) -> ErrorCode;
-    async fn change_avatar(username: String, token: String, new_avatar: String) -> ErrorCode;
+    async fn change_email_flow(username: String, new_email: String, token: String) -> Result<(), ErrorCode>;
+    async fn finish_change_email_flow(username: String, new_email: String, token: String, login_code: u16) -> Result<(), ErrorCode>;
+    async fn change_username(username: String, token: String, new_username: String) -> Result<(), ErrorCode>;
+    async fn change_avatar(username: String, token: String, new_avatar: String) -> Result<(), ErrorCode>;
     async fn get_all_data(username: String, token: String) -> Result<AuthUser, ErrorCode>;
-    async fn sign_out(username: String, token: String) -> ErrorCode;
+    async fn sign_out(username: String, token: String) -> Result<(), ErrorCode>;
     
     //NOTE: Anyone can call
     async fn get_avatar_for_user(username: String) -> Result<String, ErrorCode>;
     //TODO:
-    // Refactor all to use Result<_, ErrorCode> for ones with only -> ErrorCode
     // Create account
     // Change username
     // OAuth login, check against email, store token, take avatar: Google, Apple, GitHub, Discord
@@ -27,7 +26,6 @@ pub trait RealmAuth {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ErrorCode {
-    NoError,
     Error,
     Unauthorized,
     EmailTaken,
