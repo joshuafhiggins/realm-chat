@@ -18,10 +18,7 @@ pub trait RealmAuth {
     
     //NOTE: Anyone can call
     async fn get_avatar_for_user(username: String) -> Result<String, ErrorCode>;
-    //TODO:
-    // Create account
-    // Change username
-    // OAuth login, check against email, store token, take avatar: Google, Apple, GitHub, Discord
+    // TODO: OAuth login, check against email, store token, take avatar: Google, Apple, GitHub, Discord
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
