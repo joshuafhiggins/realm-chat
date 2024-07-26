@@ -3,7 +3,8 @@ use std::future::Future;
 use std::net::{IpAddr, Ipv6Addr};
 use dotenvy::dotenv;
 use futures::{future, StreamExt};
-use sqlx::mysql::MySqlPoolOptions;
+use sqlx::{migrate, Sqlite, SqlitePool};
+use sqlx::migrate::MigrateDatabase;
 use tarpc::server::{BaseChannel, Channel};
 use tarpc::server::incoming::Incoming;
 use tarpc::tokio_serde::formats::Json;
@@ -27,28 +28,21 @@ async fn main() -> anyhow::Result<()> {
         auth_password: env::var("SERVER_MAIL_PASSWORD").expect("SERVER_MAIL_PASSWORD must be set"),
     };
 
-    let db_pool = MySqlPoolOptions::new()
-        .max_connections(64)
-        .connect(env::var("DATABASE_URL").expect("DATABASE_URL must be set").as_str()).await?;
+    let DB_URL: &str = &env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
-    //TODO: In a docker container or figure out somewhere to do this command
-    //sqlx::query("CREATE DATABASE IF NOT EXISTS realmauth").execute(&db_pool).await?;
+    if !Sqlite::database_exists(DB_URL).await.unwrap_or(false) {
+        println!("Creating database {}", DB_URL);
+        match Sqlite::create_database(DB_URL).await {
+            Ok(_) => println!("Create db success"),
+            Err(error) => panic!("error: {}", error),
+        }
+    } else {
+        println!("Database already exists");
+    } // TODO: Do in Docker with Sqlx-cli
+    
+    let db_pool = SqlitePool::connect(DB_URL).await.unwrap();
 
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS user (
-                id SERIAL,
-                username VARCHAR(255) NOT NULL,
-                email VARCHAR(255) NOT NULL,
-                new_email VARCHAR(255),
-                avatar TEXT NOT NULL,
-                login_code INT(6),
-                tokens TEXT,
-                google_oauth VARCHAR(255),
-                apple_oauth VARCHAR(255),
-                github_oauth VARCHAR(255),
-                discord_oauth VARCHAR(255)
-             );"
-    ).execute(&db_pool).await?;
+    migrate!().run(&db_pool).await?; // TODO: Do in Docker with Sqlx-cli
 
     let server_addr = (IpAddr::V6(Ipv6Addr::LOCALHOST), env::var("PORT").expect("PORT must be set").parse::<u16>().unwrap());
 

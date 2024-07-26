@@ -24,7 +24,7 @@ pub trait RealmAuth {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthUser {
-    pub id: u32,
+    pub id: i64,
     pub username: String,
     pub email: String,
     pub avatar: String,
