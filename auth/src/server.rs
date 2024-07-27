@@ -10,6 +10,7 @@ use sha3::{Digest, Sha3_256};
 use sha3::digest::Update;
 use sqlx::{Pool, query, Sqlite};
 use tarpc::context::Context;
+use tracing::*;
 
 use crate::types::{AuthEmail, AuthUser, RealmAuth};
 use realm_shared::types::ErrorCode;
@@ -164,6 +165,9 @@ impl RealmAuth for RealmAuthServer {
     }
 
     async fn server_token_validation(self, _: Context, server_token: String, username: String, server_id: String, domain: String, tarpc_port: u16) -> bool {
+        info!("API Request: server_token_validation( server_token -> {}, username -> {}, server_id -> {}, domain -> {}, tarpc_port -> {} )", 
+            server_token, username, server_id, domain, tarpc_port);
+
         let result = query!("SELECT tokens FROM user WHERE username = ?", username).fetch_one(&self.db_pool).await;
 
         match result {
@@ -185,6 +189,8 @@ impl RealmAuth for RealmAuthServer {
     }
 
     async fn create_account_flow(self, _: Context, username: String, email: String) -> Result<(), ErrorCode> {
+        info!("API Request: create_account_flow( username -> {}, email -> {} )", username, email);
+
         if !self.is_username_valid(&username) {
             return Err(InvalidUsername)
         }
@@ -210,6 +216,8 @@ impl RealmAuth for RealmAuthServer {
     }
 
     async fn create_login_flow(self, _: Context, mut username: Option<String>, mut email: Option<String>) -> Result<(), ErrorCode> {
+        info!("API Request: create_login_flow( username -> {}, email -> {} )", username.clone().unwrap_or("None".to_string()), email.clone().unwrap_or("None".to_string()));
+
         if username.is_none() && email.is_none() {
             return Err(Error)
         }
@@ -252,7 +260,10 @@ impl RealmAuth for RealmAuthServer {
     }
 
     async fn finish_login_flow(self, _: Context, username: String, login_code: u16) -> Result<String, ErrorCode> {
+        info!("API Request: finish_login_flow( username -> {}, login_code -> {} )", username, login_code);
+
         if !self.is_login_code_valid(&username, login_code).await? {
+            error!("Unauthorized request made for finish_login_flow() (bad login code)! username -> {}, login_code -> {}", username, login_code);
             return Err(InvalidLoginCode)
         }
         
@@ -281,6 +292,8 @@ impl RealmAuth for RealmAuthServer {
     }
 
     async fn change_email_flow(self, _: Context, username: String, new_email: String, token: String) -> Result<(), ErrorCode> {
+        info!("API Request: change_email_flow( username -> {}, new_email -> {}, token -> {} )", username, new_email, token);
+
         if !self.is_authorized(&username, &token).await? {
             return Err(Unauthorized)
         }
@@ -289,12 +302,7 @@ impl RealmAuth for RealmAuthServer {
             return Err(EmailTaken)
         }
 
-        let result = query!("UPDATE user SET new_email = ? WHERE username = ?", new_email, username)
-            .execute(&self.db_pool).await;
-        match result {
-            Ok(_) => {}
-            Err(_) => return Err(InvalidUsername)
-        }
+        let _ = query!("UPDATE user SET new_email = ? WHERE username = ?", new_email, username).execute(&self.db_pool).await.unwrap();
 
         let code = self.gen_login_code();
 
@@ -308,15 +316,20 @@ impl RealmAuth for RealmAuthServer {
     }
 
     async fn finish_change_email_flow(self, _: Context, username: String, new_email: String, token: String, login_code: u16) -> Result<(), ErrorCode> {
+        info!("API Request: finish_change_email_flow( username -> {}, new_email -> {}, token -> {}, login_code -> {} )", username, new_email, token, login_code);
+
         if !self.is_authorized(&username, &token).await? {
+            error!("Unauthorized request made for finish_change_email_flow() (bad token)! username -> {}, token -> {}", username, token);
             return Err(Unauthorized)
         }
 
         if self.is_email_taken(&new_email).await? {
+            error!("Email already taken for email change (but its the end of the flow?!) username -> {}, new_email -> {}", username, new_email);
             return Err(EmailTaken)
         }
 
         if !self.is_login_code_valid(&username, login_code).await? {
+            error!("Unauthorized request made for finish_change_email_flow() (bad login code)! username -> {}, login_code -> {}", username, login_code);
             return Err(InvalidLoginCode)
         }
 
@@ -328,15 +341,20 @@ impl RealmAuth for RealmAuthServer {
     }
 
     async fn change_username(self, _: Context, username: String, token: String, new_username: String) -> Result<(), ErrorCode> {
+        info!("API Request: change_username( username -> {}, token -> {}, new_username -> {} )", username, token, new_username);
+        
+        if !self.is_authorized(&username, &token).await? {
+            error!("Unauthorized request made for change_username()! username -> {}, token -> {}", username, token);
+            return Err(Unauthorized)
+        }
+        
         if !self.is_username_valid(&new_username) {
+            error!("Malformed username in request for change_username()! new_username -> {}", new_username);
             return Err(InvalidUsername)
         }
 
-        if !self.is_authorized(&username, &token).await? {
-            return Err(Unauthorized)
-        }
-
         if self.is_username_taken(&new_username).await? {
+            error!("Username is taken for change_username()! new_username -> {}", new_username);
             return Err(UsernameTaken)
         }
 
@@ -348,7 +366,10 @@ impl RealmAuth for RealmAuthServer {
     }
 
     async fn change_avatar(self, _: Context, username: String, token: String, new_avatar: String) -> Result<(), ErrorCode> {
+        info!("API Request: change_avatar( username -> {}, token -> {}, new_avatar -> {} )", username, token, new_avatar);
+        
         if !self.is_authorized(&username, &token).await? {
+            error!("Unauthorized request made for change_avatar()! username -> {}, token -> {}", username, token);
             return Err(Unauthorized)
         }
 
@@ -360,14 +381,11 @@ impl RealmAuth for RealmAuthServer {
     }
 
     async fn get_all_data(self, _: Context, username: String, token: String) -> Result<AuthUser, ErrorCode> {
-        let result = self.is_authorized(&username, &token).await;
-        match result {
-            Ok(authorized) => {
-                if !authorized {
-                    return Err(Unauthorized)
-                }
-            }
-            Err(error) => return Err(error)
+        info!("API Request: get_all_data( username -> {}, token -> {} )", username, token);
+        
+        if !self.is_authorized(&username, &token).await? {
+            error!("Unauthorized request made for get_all_data()! username -> {}, token -> {}", username, token);
+            return Err(Unauthorized)
         }
 
         let result = query!(r"SELECT * FROM user WHERE username = ?", username).fetch_one(&self.db_pool).await;
@@ -386,11 +404,16 @@ impl RealmAuth for RealmAuthServer {
                     discord_oauth: row.discord_oauth,
                 })
             }
-            Err(_) => Err(InvalidUsername)
+            Err(_) => {
+                error!("Invalid username in request for get_all_data()! username -> {}", username);
+                Err(InvalidUsername)
+            }
         }
     }
 
     async fn sign_out(self, _: Context, username: String, token: String) -> Result<(), ErrorCode> {
+        info!("API Request: sign_out( username -> {}, token -> {} )", username, token);
+        
         let result = query!("SELECT tokens FROM user WHERE username = ?", username).fetch_one(&self.db_pool).await;
 
         match result {
@@ -408,23 +431,37 @@ impl RealmAuth for RealmAuthServer {
 
                         return match result {
                             Ok(_) => Ok(()),
-                            Err(_) => Err(Error)
+                            Err(_) => {
+                                error!("Unable to update tokens on sign_out()! \
+                                username -> {}, (previous) token_long -> {}, mega_token -> {}, token -> {}",
+                                    username, token_long, mega_token, token);
+                                Err(Error)
+                            }
                         };
                     }
                 }
 
+                error!("Unauthorized request made for sign_out()! username -> {}, token -> {}", username, token);
                 Err(Unauthorized)
             },
-            Err(_) => Err(InvalidUsername),
+            Err(_) => {
+                error!("Invalid username in request for get_avatar_for_user()! username -> {}", username);
+                Err(InvalidUsername)
+            },
         }
     }
 
     async fn get_avatar_for_user(self, _: Context, username: String) -> Result<String, ErrorCode> {
+        info!("API Request: get_avatar_for_user( username -> {} )", username);
+        
         let result = query!("SELECT avatar FROM user WHERE username = ?", username).fetch_one(&self.db_pool).await;
 
         match result {
             Ok(row) => Ok(row.avatar),
-            Err(_) => Err(InvalidUsername)
+            Err(_) => {
+                error!("Invalid username in request for get_avatar_for_user()! username -> {}", username);
+                Err(InvalidUsername)
+            }
         }
     }
 }

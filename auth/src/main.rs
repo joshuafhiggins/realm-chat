@@ -10,6 +10,7 @@ use tarpc::server::incoming::Incoming;
 use tarpc::tokio_serde::formats::Json;
 use realm_auth::server::RealmAuthServer;
 use realm_auth::types::{AuthEmail, RealmAuth};
+use tracing::*;
 
 async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
     tokio::spawn(fut);
@@ -18,6 +19,16 @@ async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv().ok();
+
+    let subscriber = tracing_subscriber::fmt()
+        .compact()
+        .with_file(true)
+        .with_line_number(true)
+        .with_thread_ids(true)
+        .with_target(false)
+        .finish();
+
+    subscriber::set_global_default(subscriber).unwrap();
 
     let auth_email = AuthEmail {
         server_address: env::var("SERVER_MAIL_ADDRESS").expect("SERVER_MAIL_ADDRESS must be set"),
@@ -31,25 +42,27 @@ async fn main() -> anyhow::Result<()> {
     let DB_URL: &str = &env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
     if !Sqlite::database_exists(DB_URL).await.unwrap_or(false) {
-        println!("Creating database {}", DB_URL);
+        info!("Creating database {}", DB_URL);
         match Sqlite::create_database(DB_URL).await {
-            Ok(_) => println!("Create db success"),
+            Ok(_) => info!("Create db success"),
             Err(error) => panic!("error: {}", error),
         }
     } else {
-        println!("Database already exists");
+        warn!("Database already exists");
     } // TODO: Do in Docker with Sqlx-cli
     
     let db_pool = SqlitePool::connect(DB_URL).await.unwrap();
 
+    info!("Running migrations...");
     migrate!().run(&db_pool).await?; // TODO: Do in Docker with Sqlx-cli
+    info!("Migrations complete!");
 
     let server_addr = (IpAddr::V6(Ipv6Addr::LOCALHOST), env::var("PORT").expect("PORT must be set").parse::<u16>().unwrap());
 
     // JSON transport is provided by the json_transport tarpc module. It makes it easy
     // to start up a serde-powered json serialization strategy over TCP.
     let mut listener = tarpc::serde_transport::tcp::listen(&server_addr, Json::default).await?;
-    tracing::info!("Listening on port {}", listener.local_addr().port());
+    info!("Listening on port {}", listener.local_addr().port());
     listener.config_mut().max_frame_length(usize::MAX);
     listener
         // Ignore accept errors.
