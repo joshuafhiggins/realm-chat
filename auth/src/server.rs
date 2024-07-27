@@ -56,7 +56,7 @@ impl RealmAuthServer {
         let result = query!("SELECT NOT EXISTS (SELECT 1 FROM user WHERE username = ?) AS does_exist", username).fetch_one(&self.db_pool).await;
         
         match result {
-            Ok(row) => Ok(row.does_exist.unwrap() != 0),
+            Ok(row) => Ok(row.does_exist != 0),
             Err(_) => Err(InvalidUsername)
         }
     }
@@ -65,7 +65,7 @@ impl RealmAuthServer {
         let result = query!("SELECT NOT EXISTS (SELECT 1 FROM user WHERE email = ?) AS does_exist", email).fetch_one(&self.db_pool).await;
 
         match result {
-            Ok(row) => Ok(row.does_exist.unwrap() != 0),
+            Ok(row) => Ok(row.does_exist != 0),
             Err(_) => Err(InvalidUsername)
         }
     }
