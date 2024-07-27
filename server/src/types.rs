@@ -18,7 +18,7 @@ pub trait RealmChat {
 	async fn keep_typing(auth_token: String) -> ErrorCode; //NOTE: If a keep alive hasn't been received in 5 seconds, stop typing
 
 	//NOTE: Any user can call, if they are in the server
-	async fn get_message_from_id(auth_token: String, id: u32) -> Result<Message, ErrorCode>;
+	async fn get_message_from_id(auth_token: String, id: i64) -> Result<Message, ErrorCode>;
 	async fn get_messages_since(auth_token: String, time: DateTime<Utc>) -> Result<Vec<Message>, ErrorCode>;
 	async fn get_rooms(auth_token: String) -> Result<Vec<Room>, ErrorCode>;
 	async fn get_room(auth_token: String, roomid: String) -> Result<Room, ErrorCode>;
@@ -106,25 +106,25 @@ pub struct Attachment {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Reply {
-	pub referencing_id: u32,
+	pub referencing_id: i64,
 	pub text: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Edit {
-	pub referencing_id: u32,
+	pub referencing_id: i64,
 	pub text: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Reaction {
-	pub referencing_id: u32,
+	pub referencing_id: i64,
 	pub emoji: String
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Redaction {
-	pub referencing_id: u32,
+	pub referencing_id: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

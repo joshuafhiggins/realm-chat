@@ -15,7 +15,7 @@ pub struct RealmChatServer {
 	pub server_id: String,
 	pub socket: SocketAddr, 
 	pub db_pool: Pool<Sqlite>,
-	pub typing_users: Vec<(u32, u32)> //NOTE: userid, roomid
+	pub typing_users: Vec<(i64, i64)> //NOTE: userid, roomid
 } //TODO: Cache for auth
 
 impl RealmChat for RealmChatServer {
@@ -77,7 +77,7 @@ impl RealmChat for RealmChatServer {
 		todo!()
 	}
 
-	async fn get_message_from_id(self, _: Context, auth_token: String, id: u32) -> Result<Message, ErrorCode> {
+	async fn get_message_from_id(self, _: Context, auth_token: String, id: i64) -> Result<Message, ErrorCode> {
 		//TODO: Auth for admin room
 		let result = sqlx::query("SELECT message.*,
         room.id AS 'room_id', room.roomid AS 'room_roomid', room.name AS 'room_name', room.admin_only_send AS 'room_admin_only_send', room.admin_only_view AS 'room_admin_only_view',
