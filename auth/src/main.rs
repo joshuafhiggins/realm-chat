@@ -39,11 +39,11 @@ async fn main() -> anyhow::Result<()> {
         auth_password: env::var("SERVER_MAIL_PASSWORD").expect("SERVER_MAIL_PASSWORD must be set"),
     };
 
-    let DB_URL: &str = &env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let database_url: &str = &env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
-    if !Sqlite::database_exists(DB_URL).await.unwrap_or(false) {
-        info!("Creating database {}", DB_URL);
-        match Sqlite::create_database(DB_URL).await {
+    if !Sqlite::database_exists(database_url).await.unwrap_or(false) {
+        info!("Creating database {}", database_url);
+        match Sqlite::create_database(database_url).await {
             Ok(_) => info!("Create db success"),
             Err(error) => panic!("error: {}", error),
         }
@@ -51,7 +51,7 @@ async fn main() -> anyhow::Result<()> {
         warn!("Database already exists");
     } // TODO: Do in Docker with Sqlx-cli
     
-    let db_pool = SqlitePool::connect(DB_URL).await.unwrap();
+    let db_pool = SqlitePool::connect(database_url).await.unwrap();
 
     info!("Running migrations...");
     migrate!().run(&db_pool).await?; // TODO: Do in Docker with Sqlx-cli
