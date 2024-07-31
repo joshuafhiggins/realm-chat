@@ -15,5 +15,8 @@ emojis = "0.6.3"
 chrono = { version = "0.4.38", features = ["serde"] }
 sqlx = { version = "0.8.0", features = [ "runtime-tokio", "tls-rustls", "sqlite", "chrono" ] }
 dotenvy = "0.15.7"
+moka = { version = "0.12.8", features = ["future"] }
+futures-util = "0.3.30"
+
 realm_auth = { path = "../auth" }
 realm_shared = { path = "../shared" }
