@@ -1,0 +1,9 @@
+[package]
+name = "realm_client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+realm_auth = { path = "../auth" }
+realm_server = { path = "../server" }
+realm_shared = { path = "../shared" }
