@@ -113,7 +113,7 @@ impl RealmChat for RealmChatServer {
 			}
 			MessageData::Redaction(r)=> {
 				let ref_msg = self.clone().get_message_from_id(ctx, stoken.clone(), r.referencing_id).await?;
-				if !ref_msg.user.userid.eq(&message.user.userid) {
+				if !ref_msg.user.userid.eq(&message.user.userid) || !self.clone().is_user_admin(&stoken).await {
 					return Err(Unauthorized)
 				}
 			}
