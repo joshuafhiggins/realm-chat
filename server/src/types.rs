@@ -18,7 +18,7 @@ pub trait RealmChat {
 	async fn keep_typing(stoken: String, userid: String, roomid: String) -> ErrorCode; //NOTE: If a keep alive hasn't been received in 5 seconds, stop typing
 
 	//NOTE: Any user can call, if they are in the server
-	async fn get_message_from_id(stoken: String, id: i64) -> Result<Message, ErrorCode>;
+	async fn get_message(stoken: String, id: i64) -> Result<Message, ErrorCode>;
 	async fn get_messages_since(stoken: String, time: DateTime<Utc>) -> Result<Vec<Message>, ErrorCode>;
 	async fn get_all_direct_replies(stoken: String, head: i64) -> Result<Vec<Message>, ErrorCode>;
 	async fn get_reply_chain(stoken: String, head: Message, depth: u8) -> Result<ReplyChain, ErrorCode>;
@@ -54,11 +54,11 @@ pub trait FromRows<R: Row>: Sized {
 impl FromRows<SqliteRow> for Message {
 	fn from_rows(rows: Vec<SqliteRow>) -> sqlx::Result<Vec<Self>> {
 		let mut messages = Vec::new();
-		
+
 		for row in rows {
 			messages.push(Message::from_row(&row)?);
 		}
-		
+
 		Ok(messages)
 	}
 }
