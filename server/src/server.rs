@@ -5,14 +5,13 @@ use chrono::{DateTime, Utc};
 use moka::future::Cache;
 use sqlx::{FromRow, Pool, query_as, Sqlite};
 use sqlx::query;
-use sqlx::sqlite::SqliteQueryResult;
 use tarpc::context::Context;
 use tracing::error;
 use realm_auth::types::RealmAuthClient;
 use realm_shared::types::ErrorCode::*;
 use realm_shared::types::ErrorCode;
 
-use crate::types::{Message, MessageData, RealmChat, Room, User};
+use crate::types::{Attachment, Edit, Message, MessageData, Reaction, RealmChat, Redaction, Reply, Room, User};
 
 #[derive(Clone)]
 pub struct RealmChatServer {
@@ -65,13 +64,7 @@ impl RealmChatServer {
 					}
 				}
 			}
-			Some(cached_username) => { 
-				if cached_username.eq(userid) {
-					true
-				} else { 
-					false
-				}
-			},
+			Some(cached_username) => cached_username.eq(userid),
 		}
 	}
 
@@ -97,20 +90,23 @@ impl RealmChat for RealmChatServer {
 		format!("Hello, {name}!")
 	}
 
-	async fn send_message(self, _: Context, stoken: String, message: Message) -> Result<Message, ErrorCode> {
-		if !self.is_stoken_valid(&message.user.userid, &stoken).await {
+	async fn send_message(self, ctx: Context, stoken: String, mut message: Message) -> Result<Message, ErrorCode> {
+		if !self.is_stoken_valid(&message.user.userid, &stoken).await { // Check sender userid
 			return Err(Unauthorized)
 		}
 		
-		match &message.data {
+		// Assert all the data in message is correct
+		message.user = self.clone().get_user(ctx, message.user.userid).await.unwrap();
+		
+		match &message.data { // Check that the sender is the owner of the referencing msg
 			MessageData::Edit(e) => {
-				let ref_msg = self.get_message_from_id(tarpc::context::current(), stoken.clone(), e.referencing_id).await?;
+				let ref_msg = self.clone().get_message_from_id(ctx, stoken.clone(), e.referencing_id).await?;
 				if !ref_msg.user.userid.eq(&message.user.userid) {
 					return Err(Unauthorized)
 				}
 			}
 			MessageData::Redaction(r)=> {
-				let ref_msg = self.get_message_from_id(tarpc::context::current(), stoken.clone(), r.referencing_id).await?;
+				let ref_msg = self.clone().get_message_from_id(ctx, stoken.clone(), r.referencing_id).await?;
 				if !ref_msg.user.userid.eq(&message.user.userid) {
 					return Err(Unauthorized)
 				}
@@ -119,7 +115,8 @@ impl RealmChat for RealmChatServer {
 		}
 
 		let is_admin = self.is_user_admin(&stoken).await;
-		let admin_only_send = query!("SELECT admin_only_send FROM room WHERE roomid = ?", 
+		let admin_only_send = query!(
+			"SELECT admin_only_send FROM room WHERE roomid = ?",
 			message.room.roomid).fetch_one(&self.db_pool).await;
 		if let Ok(record) = admin_only_send {
 			if record.admin_only_send && !is_admin {
@@ -128,6 +125,8 @@ impl RealmChat for RealmChatServer {
 		} else {
 			return Err(RoomNotFound)
 		}
+
+		message.room = self.clone().get_room(ctx, stoken.clone(), message.room.roomid).await.unwrap();
 
 		let result = match &message.data {
 			MessageData::Text(text) => {
@@ -203,6 +202,32 @@ impl RealmChat for RealmChatServer {
 	async fn get_messages_since(self, _: Context, stoken: String, time: DateTime<Utc>) -> Result<Vec<Message>, ErrorCode> {
 		//TODO: Auth for admin rooms
 		todo!()
+	}
+
+	async fn get_all_direct_replies(self, _: Context, stoken: String, head: i64) -> Result<Vec<Message>, ErrorCode> {
+		let mut messages: Vec<Message> = Vec::new();
+
+		let is_admin = self.is_user_admin(&stoken).await;
+		let result = sqlx::query("SELECT message.*,
+        room.id AS 'room_id', room.roomid AS 'room_roomid', room.name AS 'room_name', room.admin_only_send AS 'room_admin_only_send', room.admin_only_view AS 'room_admin_only_view',
+        user.id AS 'user_id', user.userid AS 'user_userid', user.name AS 'user_name', user.online AS 'user_online', user.admin AS 'user_admin'
+	    FROM message INNER JOIN room ON message.room = room.id INNER JOIN user ON message.user = user.id WHERE message.referencing_id = ? AND room.admin_only_view = ? OR false")
+			.bind(head)
+			.bind(is_admin)
+			.fetch_all(&self.db_pool).await;
+
+		match result {
+			Ok(rows) => {
+				for row in rows {
+					messages.push(Message::from_row(&row).unwrap())
+				}
+			},
+			Err(_) => {
+				return Err(MessageNotFound)
+			},
+		}
+		
+		Ok(messages)
 	}
 
 	async fn get_rooms(self, _: Context, stoken: String) -> Result<Vec<Room>, ErrorCode> {

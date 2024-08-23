@@ -20,6 +20,7 @@ pub trait RealmChat {
 	//NOTE: Any user can call, if they are in the server
 	async fn get_message_from_id(stoken: String, id: i64) -> Result<Message, ErrorCode>;
 	async fn get_messages_since(stoken: String, time: DateTime<Utc>) -> Result<Vec<Message>, ErrorCode>;
+	async fn get_all_direct_replies(stoken: String, head: i64) -> Result<Vec<Message>, ErrorCode>;
 	async fn get_rooms(stoken: String) -> Result<Vec<Room>, ErrorCode>;
 	async fn get_room(stoken: String, roomid: String) -> Result<Room, ErrorCode>;
 	async fn get_user(userid: String) -> Result<User, ErrorCode>;
@@ -89,7 +90,7 @@ impl FromRow<'_, SqliteRow> for Message {
 }
 
 //TODO: Maybe have multipart messages
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum MessageData {
 	Text(String),
 	Attachment(Attachment),
@@ -99,35 +100,35 @@ pub enum MessageData {
 	Redaction(Redaction), //NOTE: Have to be the owner of the referencing_guid
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Attachment {
 	//TODO
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Reply {
 	pub referencing_id: i64,
 	pub text: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Edit {
 	pub referencing_id: i64,
 	pub text: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Reaction {
 	pub referencing_id: i64,
 	pub emoji: String
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Redaction {
 	pub referencing_id: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, PartialEq)]
 pub struct User {
 	pub id: i64,
 	pub userid: String,
@@ -136,7 +137,7 @@ pub struct User {
 	pub admin: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, PartialEq)]
 pub struct Room {
 	pub id: i64,
 	pub roomid: String,
