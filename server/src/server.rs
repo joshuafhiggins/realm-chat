@@ -5,13 +5,14 @@ use chrono::{DateTime, Utc};
 use moka::future::Cache;
 use sqlx::{FromRow, Pool, query_as, Sqlite};
 use sqlx::query;
+use sqlx::sqlite::SqliteRow;
 use tarpc::context::Context;
 use tracing::error;
 use realm_auth::types::RealmAuthClient;
 use realm_shared::types::ErrorCode::*;
 use realm_shared::types::ErrorCode;
 
-use crate::types::{Attachment, Edit, Message, MessageData, Reaction, RealmChat, Redaction, Reply, Room, User};
+use crate::types::{Attachment, Edit, FromRows, Message, MessageData, Reaction, RealmChat, Redaction, Reply, ReplyChain, Room, User};
 
 #[derive(Clone)]
 pub struct RealmChatServer {
@@ -24,6 +25,11 @@ pub struct RealmChatServer {
 	pub auth_client: RealmAuthClient,
 	pub cache: Cache<String, String>,
 }
+
+const FETCH_MESSAGE: &str = "SELECT message.*,
+        room.id AS 'room_id', room.roomid AS 'room_roomid', room.name AS 'room_name', room.admin_only_send AS 'room_admin_only_send', room.admin_only_view AS 'room_admin_only_view',
+        user.id AS 'user_id', user.userid AS 'user_userid', user.name AS 'user_name', user.online AS 'user_online', user.admin AS 'user_admin'
+	    FROM message INNER JOIN room ON message.room = room.id INNER JOIN user ON message.user = user.id WHERE room.admin_only_view = ? OR false";
 
 impl RealmChatServer {
 	pub fn new(server_id: String, socket: SocketAddr, db_pool: Pool<Sqlite>, auth_client: RealmAuthClient) -> RealmChatServer {
@@ -181,12 +187,9 @@ impl RealmChat for RealmChatServer {
 
 	async fn get_message_from_id(self, _: Context, stoken: String, id: i64) -> Result<Message, ErrorCode> {
 		let is_admin = self.is_user_admin(&stoken).await;
-		let result = sqlx::query("SELECT message.*,
-        room.id AS 'room_id', room.roomid AS 'room_roomid', room.name AS 'room_name', room.admin_only_send AS 'room_admin_only_send', room.admin_only_view AS 'room_admin_only_view',
-        user.id AS 'user_id', user.userid AS 'user_userid', user.name AS 'user_name', user.online AS 'user_online', user.admin AS 'user_admin'
-	    FROM message INNER JOIN room ON message.room = room.id INNER JOIN user ON message.user = user.id WHERE message.id = ? AND room.admin_only_view = ? OR false")
-			.bind(id)
+		let result = sqlx::query(&format!("{}{}", FETCH_MESSAGE, "AND message.id = ?"))
 			.bind(is_admin)
+			.bind(id)
 			.fetch_one(&self.db_pool).await;
 
 		match result {
@@ -200,34 +203,55 @@ impl RealmChat for RealmChatServer {
 	}
 
 	async fn get_messages_since(self, _: Context, stoken: String, time: DateTime<Utc>) -> Result<Vec<Message>, ErrorCode> {
-		//TODO: Auth for admin rooms
-		todo!()
+		let is_admin = self.is_user_admin(&stoken).await;
+		let result = sqlx::query(&format!("{}{}", FETCH_MESSAGE, "AND message.timestamp >= ?"))
+			.bind(is_admin)
+			.bind(time)
+			.fetch_all(&self.db_pool).await;
+		
+		match result {
+			Ok(rows) => Ok(Message::from_rows(rows).unwrap()),
+			Err(_) => Err(MalformedDBResponse)
+		}
 	}
 
 	async fn get_all_direct_replies(self, _: Context, stoken: String, head: i64) -> Result<Vec<Message>, ErrorCode> {
-		let mut messages: Vec<Message> = Vec::new();
-
 		let is_admin = self.is_user_admin(&stoken).await;
-		let result = sqlx::query("SELECT message.*,
-        room.id AS 'room_id', room.roomid AS 'room_roomid', room.name AS 'room_name', room.admin_only_send AS 'room_admin_only_send', room.admin_only_view AS 'room_admin_only_view',
-        user.id AS 'user_id', user.userid AS 'user_userid', user.name AS 'user_name', user.online AS 'user_online', user.admin AS 'user_admin'
-	    FROM message INNER JOIN room ON message.room = room.id INNER JOIN user ON message.user = user.id WHERE message.referencing_id = ? AND room.admin_only_view = ? OR false")
-			.bind(head)
+		let result = sqlx::query(&format!("{}{}", FETCH_MESSAGE, "AND message.referencing_id = ?"))
 			.bind(is_admin)
+			.bind(head)
 			.fetch_all(&self.db_pool).await;
 
 		match result {
-			Ok(rows) => {
-				for row in rows {
-					messages.push(Message::from_row(&row).unwrap())
-				}
-			},
-			Err(_) => {
-				return Err(MessageNotFound)
-			},
+			Ok(rows) => Ok(Message::from_rows(rows).unwrap()),
+			Err(_) => Err(MessageNotFound),
+		}
+	}
+
+	async fn get_reply_chain(self, ctx: Context, stoken: String, head: Message, depth: u8) -> Result<ReplyChain, ErrorCode> {
+		if depth > 8 {
+			return Err(DepthTooLarge)
 		}
 		
-		Ok(messages)
+		let direct_replies = self.clone().get_all_direct_replies(ctx, stoken.clone(), head.id).await?;
+		let replies = if direct_replies.is_empty() || depth == 0 {
+			None
+		} else {
+			let mut chains = Vec::new();
+			
+			for reply in direct_replies {
+				chains.push(Box::pin(self.clone().get_reply_chain(ctx, stoken.clone(), reply, depth - 1)).await?);
+			}
+			
+			Some(chains)
+		};
+
+		let chain = ReplyChain {
+			message: head,
+			replies,
+		};
+
+		Ok(chain)
 	}
 
 	async fn get_rooms(self, _: Context, stoken: String) -> Result<Vec<Room>, ErrorCode> {

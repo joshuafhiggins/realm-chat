@@ -17,5 +17,6 @@ pub enum ErrorCode {
     MessageNotFound,
     RoomNotFound,
     UserNotFound,
+    DepthTooLarge,
     MalformedDBResponse,
 }

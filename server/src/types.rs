@@ -21,6 +21,7 @@ pub trait RealmChat {
 	async fn get_message_from_id(stoken: String, id: i64) -> Result<Message, ErrorCode>;
 	async fn get_messages_since(stoken: String, time: DateTime<Utc>) -> Result<Vec<Message>, ErrorCode>;
 	async fn get_all_direct_replies(stoken: String, head: i64) -> Result<Vec<Message>, ErrorCode>;
+	async fn get_reply_chain(stoken: String, head: Message, depth: u8) -> Result<ReplyChain, ErrorCode>;
 	async fn get_rooms(stoken: String) -> Result<Vec<Room>, ErrorCode>;
 	async fn get_room(stoken: String, roomid: String) -> Result<Room, ErrorCode>;
 	async fn get_user(userid: String) -> Result<User, ErrorCode>;
@@ -44,6 +45,22 @@ pub struct Message {
 	pub room: Room,
 	#[sqlx(flatten)]
 	pub data: MessageData,
+}
+
+pub trait FromRows<R: Row>: Sized {
+	fn from_rows(rows: Vec<R>) -> Result<Vec<Self>, sqlx::Error>;
+}
+
+impl FromRows<SqliteRow> for Message {
+	fn from_rows(rows: Vec<SqliteRow>) -> sqlx::Result<Vec<Self>> {
+		let mut messages = Vec::new();
+		
+		for row in rows {
+			messages.push(Message::from_row(&row)?);
+		}
+		
+		Ok(messages)
+	}
 }
 
 impl FromRow<'_, SqliteRow> for Message {
@@ -144,5 +161,11 @@ pub struct Room {
 	pub name: String,
 	pub admin_only_send: bool,
 	pub admin_only_view: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplyChain {
+	pub message: Message,
+	pub replies: Option<Vec<ReplyChain>>,
 }
 
