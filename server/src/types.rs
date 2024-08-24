@@ -11,7 +11,7 @@ use crate::types::MessageData::*;
 pub trait RealmChat {
 	async fn test(name: String) -> String;
 
-	//TODO: Any user authorized as themselves
+	//NOTE: Any user authorized as themselves
 	async fn send_message(stoken: String, message: Message) -> Result<Message, ErrorCode>;
 	async fn start_typing(stoken: String, userid: String, roomid: String) -> ErrorCode;
 	async fn stop_typing(stoken: String, userid: String, roomid: String) -> ErrorCode;
@@ -83,7 +83,9 @@ impl FromRow<'_, SqliteRow> for Message {
 			},
 			data: match row.try_get("msg_type")? {
 				"text" => Text(row.try_get("msg_text")?),
-				"attachment" => todo!(),
+				"attachment" => Attachment(Attachment {
+					
+				}),
 				"reply" => Reply(Reply {
 					referencing_id: row.try_get("referencing_id")?,
 					text: row.try_get("msg_text")?,

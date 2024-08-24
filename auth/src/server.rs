@@ -39,7 +39,7 @@ impl RealmAuthServer {
         }
     }
     
-    pub fn gen_login_code(&self) -> u16 {
+    fn gen_login_code(&self) -> u16 {
         let mut rng = rand::thread_rng();
         let mut login_code: u16 = 0;
 
@@ -53,7 +53,7 @@ impl RealmAuthServer {
         login_code
     }
     
-    pub async fn is_username_taken(&self, username: &str) -> Result<bool, ErrorCode> {
+    async fn is_username_taken(&self, username: &str) -> Result<bool, ErrorCode> {
         let result = query!("SELECT NOT EXISTS (SELECT 1 FROM user WHERE username = ?) AS does_exist", username).fetch_one(&self.db_pool).await;
         
         match result {
@@ -62,7 +62,7 @@ impl RealmAuthServer {
         }
     }
     
-    pub async fn is_email_taken(&self, email: &str) -> Result<bool, ErrorCode> {
+    async fn is_email_taken(&self, email: &str) -> Result<bool, ErrorCode> {
         let result = query!("SELECT NOT EXISTS (SELECT 1 FROM user WHERE email = ?) AS does_exist", email).fetch_one(&self.db_pool).await;
 
         match result {
@@ -71,7 +71,7 @@ impl RealmAuthServer {
         }
     }
     
-    pub async fn is_authorized(&self, username: &str, token: &str) -> Result<bool, ErrorCode> {
+    async fn is_authorized(&self, username: &str, token: &str) -> Result<bool, ErrorCode> {
         let result = query!("SELECT tokens FROM user WHERE username = ?", username).fetch_one(&self.db_pool).await;
 
         match result {
@@ -91,7 +91,7 @@ impl RealmAuthServer {
         }
     }
     
-    pub async fn send_login_message(&self, username: &str, email: &str, login_code: u16) -> Result<(), ErrorCode> {
+    async fn send_login_message(&self, username: &str, email: &str, login_code: u16) -> Result<(), ErrorCode> {
         let message = MessageBuilder::new()
             .from((self.auth_email.auth_name.clone(), self.auth_email.auth_username.clone()))
             .to(vec![
@@ -125,7 +125,7 @@ impl RealmAuthServer {
         }
     }
 
-    pub async fn is_login_code_valid(&self, username: &str, login_code: u16) -> Result<bool, ErrorCode> {
+    async fn is_login_code_valid(&self, username: &str, login_code: u16) -> Result<bool, ErrorCode> {
         let result = query!("SELECT login_code FROM user WHERE username = ?;", username).fetch_one(&self.db_pool).await;
 
         match result {
@@ -139,7 +139,7 @@ impl RealmAuthServer {
         }
     }
 
-    pub fn is_username_valid(&self, username: &str) -> bool {
+    fn is_username_valid(&self, username: &str) -> bool {
         if !username.starts_with('@') || !username.contains(':') {
             return false
         }
@@ -159,7 +159,7 @@ impl RealmAuthServer {
         true
     }
     
-    pub async fn reset_login_code(&self, username: &str) -> Result<(), ErrorCode> {
+    async fn reset_login_code(&self, username: &str) -> Result<(), ErrorCode> {
         let result = query!("UPDATE user SET login_code = NULL WHERE username = ?", username).execute(&self.db_pool).await;
         
         match result {
