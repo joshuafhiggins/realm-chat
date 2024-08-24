@@ -5,7 +5,6 @@ use chrono::{DateTime, Utc};
 use moka::future::Cache;
 use sqlx::{FromRow, Pool, query_as, Sqlite};
 use sqlx::query;
-use sqlx::sqlite::SqliteRow;
 use tarpc::context::Context;
 use tracing::error;
 use realm_auth::types::RealmAuthClient;
@@ -52,6 +51,10 @@ impl RealmChatServer {
 	async fn is_stoken_valid(&self, userid: &str, stoken: &str) -> bool {
 		match self.cache.get(stoken).await {
 		    None => {
+				if !self.is_user_in_server(userid).await {
+					return false;
+				}
+				
 				let result = self.auth_client.server_token_validation(
 					tarpc::context::current(), stoken.to_string(), userid.to_string(), self.server_id.clone(), self.domain.clone(), self.port)
 					.await;
@@ -88,6 +91,15 @@ impl RealmChatServer {
 			}
 		}
 		false
+	}
+	
+	async fn is_user_in_server(&self, userid: &str) -> bool {
+		let result = query!("SELECT NOT EXISTS (SELECT 1 FROM user WHERE userid = ?) AS does_exist", userid).fetch_one(&self.db_pool).await;
+		
+		match result {
+			Ok(record) => record.does_exist != 0,
+			Err(_) => false
+		}
 	}
 
 	async fn inner_get_all_direct_replies(&self, stoken: &str, head: i64) -> Result<Vec<Message>, ErrorCode> {
@@ -329,6 +341,109 @@ impl RealmChat for RealmChatServer {
 		match result {
 			Ok(users) => Ok(users),
 			Err(_) => Err(Error),
+		}
+	}
+
+	async fn join_server(self, _: Context, stoken: String, user: User) -> Result<User, ErrorCode> {
+		todo!()
+	}
+
+	async fn create_room(self, _: Context, stoken: String, room: Room) -> Result<Room, ErrorCode> {
+		if !self.is_user_admin(&stoken).await {
+			return Err(Unauthorized)
+		}
+
+		let result = query!("INSERT INTO room (roomid, name, admin_only_send, admin_only_view) VALUES (?,?,?,?)",
+			room.roomid, room.name, room.admin_only_send, room.admin_only_view)
+			.execute(&self.db_pool).await;
+
+		match result {
+			Ok(_) => {
+				// TODO: tell everyone
+				Ok(room)
+			}
+			Err(_) => Err(MalformedDBResponse)
+		}
+	}
+
+	async fn delete_room(self, _: Context, stoken: String, roomid: String) -> Result<(), ErrorCode> {
+		if !self.is_user_admin(&stoken).await {
+			return Err(Unauthorized)
+		}
+
+		let result = query!("DELETE FROM room WHERE roomid = ?", roomid).execute(&self.db_pool).await;
+
+		match result {
+			Ok(_) => {
+				// TODO: tell everyone
+				Ok(())
+			}
+			Err(_) => Err(MalformedDBResponse)
+		}
+	}
+
+	async fn rename_room(self, _: Context, stoken: String, roomid: String, new_name: String) -> Result<(), ErrorCode> {
+		if !self.is_user_admin(&stoken).await {
+			return Err(Unauthorized)
+		}
+
+		let result = query!("UPDATE room SET name = ? WHERE roomid = ?", new_name, roomid).execute(&self.db_pool).await;
+
+		match result {
+			Ok(_) => {
+				// TODO: tell everyone
+				Ok(())
+			}
+			Err(_) => Err(MalformedDBResponse)
+		}
+	}
+
+	async fn kick_user(self, _: Context, stoken: String, userid: String) -> Result<(), ErrorCode> {
+		if !self.is_user_admin(&stoken).await {
+			return Err(Unauthorized)
+		}
+
+		let result = query!("DELETE FROM user WHERE userid = ?", userid).execute(&self.db_pool).await;
+
+		match result {
+			Ok(_) => {
+				// TODO: tell everyone
+				Ok(())
+			}
+			Err(_) => Err(MalformedDBResponse)
+		}
+	}
+
+	async fn ban_user(self, _: Context, stoken: String, userid: String) -> Result<(), ErrorCode> {
+		if !self.is_user_admin(&stoken).await {
+			return Err(Unauthorized)
+		}
+
+		query!("DELETE FROM user WHERE userid = ?", userid).execute(&self.db_pool).await.unwrap();
+		let result = query!("INSERT INTO banned (userid) VALUES (?)", userid).execute(&self.db_pool).await;
+
+		match result {
+			Ok(_) => {
+				// TODO: tell everyone
+				Ok(())
+			}
+			Err(_) => Err(MalformedDBResponse)
+		}
+	}
+
+	async fn pardon_user(self, _: Context, stoken: String, userid: String) -> Result<(), ErrorCode> {
+		if !self.is_user_admin(&stoken).await {
+			return Err(Unauthorized)
+		}
+
+		let result = query!("DELETE FROM banned WHERE userid = ?", userid).execute(&self.db_pool).await;
+
+		match result {
+			Ok(_) => {
+				// TODO: tell everyone
+				Ok(())
+			}
+			Err(_) => Err(MalformedDBResponse)
 		}
 	}
 }

@@ -25,3 +25,8 @@ CREATE TABLE IF NOT EXISTS message (
                 referencing_id INTEGER,
                 emoji TEXT
             );
+
+CREATE TABLE IF NOT EXISTS banned (
+                id INTEGER PRIMARY KEY,
+                userid VARCHAR(255) NOT NULL
+            );

@@ -27,14 +27,13 @@ pub trait RealmChat {
 	async fn get_user(userid: String) -> Result<User, ErrorCode>;
 	async fn get_users() -> Result<Vec<User>, ErrorCode>;
 	async fn get_online_users() -> Result<Vec<User>, ErrorCode>;
-
-	//TODO: Admin access only!
-	// async fn create_room() -> Result<Room, ErrorCode>;
-	// delete room
-	// delete any message
-	// kick user
-	// ban user
-	// unban user
+	async fn join_server(stoken: String, user: User) -> Result<User, ErrorCode>;
+	async fn create_room(stoken: String, room: Room) -> Result<Room, ErrorCode>;
+	async fn delete_room(stoken: String, roomid: String) -> Result<(), ErrorCode>;
+	async fn rename_room(stoken: String, roomid: String, new_name: String) -> Result<(), ErrorCode>;
+	async fn kick_user(stoken: String, userid: String) -> Result<(), ErrorCode>;
+	async fn ban_user(stoken: String, userid: String) -> Result<(), ErrorCode>;
+	async fn pardon_user(stoken: String, userid: String) -> Result<(), ErrorCode>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
