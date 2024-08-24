@@ -1,11 +1,12 @@
 use std::env;
-use std::net::SocketAddr;
+use std::net::{SocketAddr};
 use std::time::Duration;
 use chrono::{DateTime, Utc};
 use moka::future::Cache;
 use sqlx::{FromRow, Pool, query_as, Sqlite};
 use sqlx::query;
 use tarpc::context::Context;
+use tarpc::tokio_serde::formats::Json;
 use tracing::error;
 use realm_auth::types::RealmAuthClient;
 use realm_shared::types::ErrorCode::*;
@@ -21,7 +22,6 @@ pub struct RealmChatServer {
 	pub socket: SocketAddr, 
 	pub db_pool: Pool<Sqlite>,
 	pub typing_users: Vec<(String, String)>, //NOTE: user.userid, room.roomid
-	pub auth_client: RealmAuthClient,
 	pub cache: Cache<String, String>,
 }
 
@@ -31,7 +31,7 @@ const FETCH_MESSAGE: &str = "SELECT message.*,
 	    FROM message INNER JOIN room ON message.room = room.id INNER JOIN user ON message.user = user.id WHERE room.admin_only_view = ? OR false";
 
 impl RealmChatServer {
-	pub fn new(server_id: String, socket: SocketAddr, db_pool: Pool<Sqlite>, auth_client: RealmAuthClient) -> RealmChatServer {
+	pub fn new(server_id: String, socket: SocketAddr, db_pool: Pool<Sqlite>) -> RealmChatServer {
 		RealmChatServer {
 			server_id,
 			port: env::var("PORT").unwrap().parse::<u16>().unwrap(),
@@ -39,7 +39,6 @@ impl RealmChatServer {
 			socket,
 			db_pool,
 			typing_users: Vec::new(),
-			auth_client,
 			cache: Cache::builder()
 				.max_capacity(10_000)
 				.time_to_idle(Duration::from_secs(5*60))
@@ -55,7 +54,20 @@ impl RealmChatServer {
 					return false;
 				}
 				
-				let result = self.auth_client.server_token_validation(
+				let user_domain = &userid[userid.find(':').unwrap()+1..];
+
+				let mut auth_transport = tarpc::serde_transport::tcp::connect((user_domain, 5052), Json::default);
+				auth_transport.config_mut().max_frame_length(usize::MAX);
+				let connected = match auth_transport.await {
+					Ok(out) => Some(out),
+					Err(_) => None
+				};
+				if connected.is_none() {
+					return false;
+				}
+				let auth_client = RealmAuthClient::new(tarpc::client::Config::default(), connected.unwrap()).spawn();
+				
+				let result = auth_client.server_token_validation(
 					tarpc::context::current(), stoken.to_string(), userid.to_string(), self.server_id.clone(), self.domain.clone(), self.port)
 					.await;
 				
@@ -303,7 +315,7 @@ impl RealmChat for RealmChatServer {
 		self.inner_get_all_direct_replies(&stoken, head).await
 	}
 
-	async fn get_reply_chain(self, ctx: Context, stoken: String, head: Message, depth: u8) -> Result<ReplyChain, ErrorCode> {
+	async fn get_reply_chain(self, _: Context, stoken: String, head: Message, depth: u8) -> Result<ReplyChain, ErrorCode> {
 		self.inner_get_reply_chain(&stoken, head, depth).await
 	}
 
