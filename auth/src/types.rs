@@ -12,10 +12,12 @@ pub trait RealmAuth {
     //NOTE: Need to be the user
     async fn change_email_flow(username: String, new_email: String, token: String) -> Result<(), ErrorCode>;
     async fn finish_change_email_flow(username: String, new_email: String, token: String, login_code: u16) -> Result<(), ErrorCode>;
-    async fn change_username(username: String, token: String, new_username: String) -> Result<(), ErrorCode>;
+    // async fn change_username(username: String, token: String, new_username: String) -> Result<(), ErrorCode>;
     async fn change_avatar(username: String, token: String, new_avatar: String) -> Result<(), ErrorCode>;
     async fn get_all_data(username: String, token: String) -> Result<AuthUser, ErrorCode>;
     async fn sign_out(username: String, token: String) -> Result<(), ErrorCode>;
+    async fn delete_account_flow(username: String, token: String) -> Result<(), ErrorCode>;
+    async fn finish_delete_account_flow(username: String, token: String, login_code: u16) -> Result<(), ErrorCode>;
     
     //NOTE: Anyone can call
     async fn get_avatar_for_user(username: String) -> Result<String, ErrorCode>;

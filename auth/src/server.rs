@@ -9,9 +9,10 @@ use regex::Regex;
 use sha3::{Digest, Sha3_256};
 use sha3::digest::Update;
 use sqlx::{Pool, query, Sqlite};
+use sqlx::sqlite::SqliteQueryResult;
 use tarpc::context::Context;
 use tracing::*;
-
+use tracing::log::__private_api::log;
 use crate::types::{AuthEmail, AuthUser, RealmAuth};
 use realm_shared::types::ErrorCode;
 use realm_shared::types::ErrorCode::*;
@@ -157,6 +158,15 @@ impl RealmAuthServer {
 
         true
     }
+    
+    pub async fn reset_login_code(&self, username: &str) -> Result<(), ErrorCode> {
+        let result = query!("UPDATE user SET login_code = NULL WHERE username = ?", username).execute(&self.db_pool).await;
+        
+        match result {
+            Ok(_) => Ok(()),
+            Err(_) => Err(InvalidUsername)
+        }
+    }
 }
 
 impl RealmAuth for RealmAuthServer {
@@ -266,7 +276,9 @@ impl RealmAuth for RealmAuthServer {
             error!("Unauthorized request made for finish_login_flow() (bad login code)! username -> {}, login_code -> {}", username, login_code);
             return Err(InvalidLoginCode)
         }
-        
+
+        self.reset_login_code(&username).await?;
+
         let _ = query!("UPDATE user SET login_code = NULL WHERE username = ?", username).execute(&self.db_pool).await;
 
         let hash = Sha3_256::new().chain(format!("{}{}{}", username, login_code, Utc::now().to_utc())).finalize();
@@ -337,33 +349,35 @@ impl RealmAuth for RealmAuthServer {
 
         let _ = query!("UPDATE user SET email = ? WHERE username = ?", new_email, username).execute(&self.db_pool).await;
 
+        self.reset_login_code(&username).await?;
+
         Ok(())
     }
 
-    async fn change_username(self, _: Context, username: String, token: String, new_username: String) -> Result<(), ErrorCode> {
-        info!("API Request: change_username( username -> {}, token -> {}, new_username -> {} )", username, token, new_username);
-        
-        if !self.is_authorized(&username, &token).await? {
-            error!("Unauthorized request made for change_username()! username -> {}, token -> {}", username, token);
-            return Err(Unauthorized)
-        }
-        
-        if !self.is_username_valid(&new_username) {
-            error!("Malformed username in request for change_username()! new_username -> {}", new_username);
-            return Err(InvalidUsername)
-        }
-
-        if self.is_username_taken(&new_username).await? {
-            error!("Username is taken for change_username()! new_username -> {}", new_username);
-            return Err(UsernameTaken)
-        }
-
-        let result = query!("UPDATE user SET username = ? WHERE username = ?", new_username, username).execute(&self.db_pool).await;
-        match result {
-            Ok(_) => Ok(()),
-            Err(_) => Err(Error)
-        }
-    }
+    // async fn change_username(self, _: Context, username: String, token: String, new_username: String) -> Result<(), ErrorCode> {
+    //     info!("API Request: change_username( username -> {}, token -> {}, new_username -> {} )", username, token, new_username);
+    //     
+    //     if !self.is_authorized(&username, &token).await? {
+    //         error!("Unauthorized request made for change_username()! username -> {}, token -> {}", username, token);
+    //         return Err(Unauthorized)
+    //     }
+    //     
+    //     if !self.is_username_valid(&new_username) {
+    //         error!("Malformed username in request for change_username()! new_username -> {}", new_username);
+    //         return Err(InvalidUsername)
+    //     }
+    // 
+    //     if self.is_username_taken(&new_username).await? {
+    //         error!("Username is taken for change_username()! new_username -> {}", new_username);
+    //         return Err(UsernameTaken)
+    //     }
+    // 
+    //     let result = query!("UPDATE user SET username = ? WHERE username = ?", new_username, username).execute(&self.db_pool).await;
+    //     match result {
+    //         Ok(_) => Ok(()),
+    //         Err(_) => Err(Error)
+    //     }
+    // }
 
     async fn change_avatar(self, _: Context, username: String, token: String, new_avatar: String) -> Result<(), ErrorCode> {
         info!("API Request: change_avatar( username -> {}, token -> {}, new_avatar -> {} )", username, token, new_avatar);
@@ -448,6 +462,49 @@ impl RealmAuth for RealmAuthServer {
                 error!("Invalid username in request for get_avatar_for_user()! username -> {}", username);
                 Err(InvalidUsername)
             },
+        }
+    }
+
+    async fn delete_account_flow(self, _: Context, username: String, token: String) -> Result<(), ErrorCode> {
+        info!("API Request: delete_account_flow( username -> {}, token -> {} )", username, token);
+        
+        if !self.is_authorized(&username, &token).await? {
+            return Err(Unauthorized)
+        }
+
+        let email = match query!("SELECT email FROM user WHERE username = ?;", username).fetch_one(&self.db_pool).await {
+            Ok(row) => Ok(row.email),
+            Err(_) => Err(InvalidUsername),
+        }?;
+
+        let code = self.gen_login_code();
+
+        let result = query!("UPDATE user SET login_code = ? WHERE username = ?;", code, username)
+            .execute(&self.db_pool).await;
+
+        match result {
+            Ok(_) => self.send_login_message(&username, &email, code).await,
+            Err(_) => Err(InvalidUsername)
+        }
+    }
+
+    async fn finish_delete_account_flow(self, _: Context, username: String, token: String, login_code: u16) -> Result<(), ErrorCode> {
+        info!("API Request: finish_delete_account_flow( username -> {}, token -> {}, login_code -> {} )", username, token, login_code);
+
+        if !self.is_authorized(&username, &token).await? {
+            return Err(Unauthorized)
+        }
+
+        if !self.is_login_code_valid(&username, login_code).await? {
+            return Err(InvalidLoginCode)
+        }
+        
+        self.reset_login_code(&username).await?;
+        
+        let result = query!("DELETE FROM user WHERE username = ?", username).execute(&self.db_pool).await;
+        match result {
+            Ok(_) => Ok(()),
+            Err(_) => Err(InvalidUsername)
         }
     }
 
