@@ -13,6 +13,8 @@ pub enum ErrorCode {
     InvalidToken,
     UnableToConnectToMail,
     UnableToSendMail,
+    AlreadyJoinedServer,
+    NotInServer,
     
     MessageNotFound,
     RoomNotFound,

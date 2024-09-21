@@ -18,6 +18,9 @@ pub trait RealmAuth {
     async fn sign_out(username: String, token: String) -> Result<(), ErrorCode>;
     async fn delete_account_flow(username: String, token: String) -> Result<(), ErrorCode>;
     async fn finish_delete_account_flow(username: String, token: String, login_code: u16) -> Result<(), ErrorCode>;
+    async fn add_server(username: String, token: String, domain: String) -> Result<(), ErrorCode>;
+    async fn remove_server(username: String, token: String, domain: String) -> Result<(), ErrorCode>;
+    async fn get_joined_servers(username: String, token: String) -> Result<Vec<String>, ErrorCode>;
     
     //NOTE: Anyone can call
     async fn get_avatar_for_user(username: String) -> Result<String, ErrorCode>;
@@ -30,6 +33,7 @@ pub struct AuthUser {
     pub username: String,
     pub email: String,
     pub avatar: String,
+    pub servers: String,
     pub login_code: Option<u16>,
     pub bigtoken: Option<String>,
     pub google_oauth: Option<String>,
