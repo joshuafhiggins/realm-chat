@@ -192,6 +192,42 @@ impl RealmChat for RealmChatServer {
 		format!("Hello, {name}!")
 	}
 
+	async fn join_server(self, _: Context, stoken: String, user: User) -> Result<(), ErrorCode> {
+		if !self.is_stoken_valid(&user.userid, &stoken).await {
+			return Err(Unauthorized)
+		}
+
+		if self.is_user_in_server(&user.userid).await {
+			return Err(AlreadyJoinedServer)
+		}
+
+		let result = query!(
+			"INSERT INTO user (userid, name, online, admin) VALUES (?,?,?,?)", 
+			user.userid, user.name, false, false).execute(&self.db_pool).await;
+
+		match result {
+			Ok(_) => Ok(()),
+			Err(_) => Err(MalformedDBResponse),
+		}
+	}
+
+	async fn leave_server(self, _: Context, stoken: String, user: User) -> Result<(), ErrorCode> {
+		if !self.is_stoken_valid(&user.userid, &stoken).await {
+			return Err(Unauthorized)
+		}
+
+		if !self.is_user_in_server(&user.userid).await {
+			return Err(NotInServer)
+		}
+
+		let result = query!("DELETE FROM user WHERE userid = ?",user.userid).execute(&self.db_pool).await;
+
+		match result {
+			Ok(_) => Ok(()),
+			Err(_) => Err(MalformedDBResponse),
+		}	
+	}
+
 	async fn send_message(self, _: Context, stoken: String, mut message: Message) -> Result<Message, ErrorCode> {
 		if !self.is_stoken_valid(&message.user.userid, &stoken).await { // Check sender userid
 			return Err(Unauthorized)
@@ -354,10 +390,6 @@ impl RealmChat for RealmChatServer {
 			Ok(users) => Ok(users),
 			Err(_) => Err(Error),
 		}
-	}
-
-	async fn join_server(self, _: Context, stoken: String, user: User) -> Result<User, ErrorCode> {
-		todo!()
 	}
 
 	async fn create_room(self, _: Context, stoken: String, room: Room) -> Result<Room, ErrorCode> {

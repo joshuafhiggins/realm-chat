@@ -10,6 +10,9 @@ use crate::types::MessageData::*;
 #[tarpc::service]
 pub trait RealmChat {
 	async fn test(name: String) -> String;
+	
+	async fn join_server(stoken: String, user: User) -> Result<(), ErrorCode>;
+	async fn leave_server(stoken: String, user: User) -> Result<(), ErrorCode>;
 
 	//NOTE: Any user authorized as themselves
 	async fn send_message(stoken: String, message: Message) -> Result<Message, ErrorCode>;
@@ -27,7 +30,6 @@ pub trait RealmChat {
 	async fn get_user(userid: String) -> Result<User, ErrorCode>;
 	async fn get_users() -> Result<Vec<User>, ErrorCode>;
 	async fn get_online_users() -> Result<Vec<User>, ErrorCode>;
-	async fn join_server(stoken: String, user: User) -> Result<User, ErrorCode>;
 	async fn create_room(stoken: String, room: Room) -> Result<Room, ErrorCode>;
 	async fn delete_room(stoken: String, roomid: String) -> Result<(), ErrorCode>;
 	async fn rename_room(stoken: String, roomid: String, new_name: String) -> Result<(), ErrorCode>;
