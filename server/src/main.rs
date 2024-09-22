@@ -1,7 +1,8 @@
 use std::env;
 use std::future::Future;
-use std::net::{IpAddr, Ipv6Addr};
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use dotenvy::dotenv;
+use durian::{PacketManager, ServerConfig};
 use futures::future::{self};
 use futures::StreamExt;
 use sqlx::migrate::MigrateDatabase;
@@ -13,6 +14,8 @@ use tarpc::{
 use tarpc::server::incoming::Incoming;
 use tarpc::server::BaseChannel;
 use tracing::{info, subscriber, warn};
+use realm_server::events;
+use realm_server::events::{GreetPacketBuilder};
 use realm_server::server::RealmChatServer;
 use realm_server::types::RealmChat;
 
@@ -52,8 +55,22 @@ async fn main() -> anyhow::Result<()> {
 	migrate!().run(&db_pool).await?; // TODO: Do in Docker with Sqlx-cli
 	info!("Migrations complete!");
 
-	let server_addr = (IpAddr::V6(Ipv6Addr::LOCALHOST), env::var("PORT").expect("PORT must be set").parse::<u16>().unwrap());
+	let port = env::var("PORT").expect("PORT must be set").parse::<u16>().unwrap();
+	let server_addr = (IpAddr::V6(Ipv6Addr::LOCALHOST), port);
 
+	let mut manager = PacketManager::new();
+	manager.init_server(
+		ServerConfig::new(
+			SocketAddr::from((IpAddr::V6(Ipv6Addr::LOCALHOST), port-1)).to_string(),
+			0, None, 2, 256))?;
+
+	let callback = |_| {
+
+	};
+	
+	manager.register_receive_packet::<events::Greet>(GreetPacketBuilder).unwrap();
+	
+	
 	// JSON transport is provided by the json_transport tarpc module. It makes it easy
 	// to start up a serde-powered json serialization strategy over TCP.
 	let mut listener = tarpc::serde_transport::tcp::listen(&server_addr, Json::default).await?;

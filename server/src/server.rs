@@ -1,5 +1,5 @@
 use std::env;
-use std::net::{SocketAddr};
+use std::net::{Ipv6Addr, SocketAddr};
 use std::time::Duration;
 use chrono::{DateTime, Utc};
 use moka::future::Cache;
@@ -204,6 +204,8 @@ impl RealmChat for RealmChatServer {
 		let result = query!(
 			"INSERT INTO user (userid, name, online, admin) VALUES (?,?,?,?)", 
 			user.userid, user.name, false, false).execute(&self.db_pool).await;
+		
+		//TODO: tell everyone
 
 		match result {
 			Ok(_) => Ok(()),
@@ -222,6 +224,8 @@ impl RealmChat for RealmChatServer {
 
 		let result = query!("DELETE FROM user WHERE userid = ?",user.userid).execute(&self.db_pool).await;
 
+		//TODO: tell everyone
+		
 		match result {
 			Ok(_) => Ok(()),
 			Err(_) => Err(MalformedDBResponse),
