@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS room (
                 id INTEGER PRIMARY KEY,
                 roomid VARCHAR(255) NOT NULL,
-                name VARCHAR(255) NOT NULL,
+--                 name VARCHAR(255) NOT NULL,
                 admin_only_send BOOL NOT NULL,
                 admin_only_view BOOL NOT NULL
             );
@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS user (
                 id INTEGER PRIMARY KEY,
                 userid VARCHAR(255) NOT NULL,
                 name VARCHAR(255) NOT NULL,
-                online BOOL NOT NULL,
+--                 online BOOL NOT NULL,
+                owner BOOL NOT NULL,
                 admin BOOL NOT NULL
             );
 

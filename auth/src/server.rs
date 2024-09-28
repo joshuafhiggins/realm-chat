@@ -354,7 +354,6 @@ impl RealmAuth for RealmAuthServer {
 		Ok(())
 	}
 
-	// TODO: find a way of supporting, post-capstone work
 	// async fn change_username(self, _: Context, username: String, token: String, new_username: String) -> Result<(), ErrorCode> {
 	//     info!("API Request: change_username( username -> {}, token -> {}, new_username -> {} )", username, token, new_username);
 	//

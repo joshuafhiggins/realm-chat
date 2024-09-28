@@ -1,17 +1,20 @@
 use std::env;
-use std::net::{Ipv6Addr, SocketAddr};
+use std::net::SocketAddr;
+use std::sync::{Arc};
 use std::time::Duration;
 use chrono::{DateTime, Utc};
+use durian::PacketManager;
 use moka::future::Cache;
 use sqlx::{FromRow, Pool, query_as, Sqlite};
 use sqlx::query;
 use tarpc::context::Context;
 use tarpc::tokio_serde::formats::Json;
+use tokio::sync::Mutex;
 use tracing::error;
 use realm_auth::types::RealmAuthClient;
 use realm_shared::types::ErrorCode::*;
 use realm_shared::types::ErrorCode;
-
+use crate::events::*;
 use crate::types::{Attachment, Edit, FromRows, Message, MessageData, Reaction, RealmChat, Redaction, Reply, ReplyChain, Room, User};
 
 #[derive(Clone)]
@@ -23,15 +26,18 @@ pub struct RealmChatServer {
 	pub db_pool: Pool<Sqlite>,
 	pub typing_users: Vec<(String, String)>, //NOTE: user.userid, room.roomid
 	pub cache: Cache<String, String>,
+	pub packet_manager: Arc<Mutex<PacketManager>>,
 }
 
 const FETCH_MESSAGE: &str = "SELECT message.*,
-        room.id AS 'room_id', room.roomid AS 'room_roomid', room.name AS 'room_name', room.admin_only_send AS 'room_admin_only_send', room.admin_only_view AS 'room_admin_only_view',
-        user.id AS 'user_id', user.userid AS 'user_userid', user.name AS 'user_name', user.online AS 'user_online', user.admin AS 'user_admin'
+        room.id AS 'room_id', room.roomid AS 'room_roomid', room.admin_only_send AS 'room_admin_only_send', room.admin_only_view AS 'room_admin_only_view',
+        user.id AS 'user_id', user.userid AS 'user_userid', user.name AS 'user_name', user.owner AS 'user_owner', user.admin AS 'user_admin'
 	    FROM message INNER JOIN room ON message.room = room.id INNER JOIN user ON message.user = user.id WHERE room.admin_only_view = ? OR false";
+// room.name AS 'room_name',
+// user.online AS 'user_online', 
 
 impl RealmChatServer {
-	pub fn new(server_id: String, socket: SocketAddr, db_pool: Pool<Sqlite>) -> RealmChatServer {
+	pub fn new(server_id: String, socket: SocketAddr, db_pool: Pool<Sqlite>, packet_manager: Arc<Mutex<PacketManager>>) -> RealmChatServer {
 		RealmChatServer {
 			server_id,
 			port: env::var("PORT").unwrap().parse::<u16>().unwrap(),
@@ -43,7 +49,8 @@ impl RealmChatServer {
 				.max_capacity(10_000)
 				.time_to_idle(Duration::from_secs(5*60))
 				.time_to_live(Duration::from_secs(60*60))
-				.build()
+				.build(),
+			packet_manager,
 		}
 	}
 	
@@ -95,6 +102,22 @@ impl RealmChatServer {
 			return match result {
 				Ok(record) => {
 					if record.admin {
+						return true
+					}
+					false
+				}
+				Err(_) => false
+			}
+		}
+		false
+	}
+	
+	async fn is_user_owner(&self, stoken: &str) -> bool {
+		if let Some(userid) = self.cache.get(stoken).await {
+			let result = query!("SELECT owner FROM user WHERE userid = ?", userid).fetch_one(&self.db_pool).await;
+			return match result {
+				Ok(record) => {
+					if record.owner {
 						return true
 					}
 					false
@@ -172,6 +195,15 @@ impl RealmChatServer {
 			Err(_) => Err(UserNotFound),
 		}
 	}
+	
+	async fn inner_get_all_users(&self) -> Result<Vec<User>, ErrorCode> {
+		let result = query_as!(User, "SELECT * FROM user").fetch_all(&self.db_pool).await;
+		
+		match result {
+			Ok(users) => Ok(users),
+			Err(_) => Err(Error),
+		}
+	}
 
 	async fn inner_get_message(&self, stoken: &str, id: i64) -> Result<Message, ErrorCode> {
 		let is_admin = self.is_user_admin(&stoken).await;
@@ -192,7 +224,7 @@ impl RealmChat for RealmChatServer {
 		format!("Hello, {name}!")
 	}
 
-	async fn join_server(self, _: Context, stoken: String, user: User) -> Result<(), ErrorCode> {
+	async fn join_server(self, _: Context, stoken: String, user: User) -> Result<User, ErrorCode> {
 		if !self.is_stoken_valid(&user.userid, &stoken).await {
 			return Err(Unauthorized)
 		}
@@ -200,15 +232,28 @@ impl RealmChat for RealmChatServer {
 		if self.is_user_in_server(&user.userid).await {
 			return Err(AlreadyJoinedServer)
 		}
-
-		let result = query!(
-			"INSERT INTO user (userid, name, online, admin) VALUES (?,?,?,?)", 
-			user.userid, user.name, false, false).execute(&self.db_pool).await;
 		
-		//TODO: tell everyone
+		let is_owner = {
+			let all_users = self.inner_get_all_users().await?;
+			all_users.is_empty()
+		};
+		
+		let result = query!("INSERT INTO user (userid, name, owner, admin) VALUES (?,?,?,?)", user.userid, user.name, is_owner, is_owner).execute(&self.db_pool).await;
+		
 
 		match result {
-			Ok(_) => Ok(()),
+			Ok(_) => {
+				let new_user = self.inner_get_user(&user.userid).await?;
+				
+				let result = self.packet_manager.lock().await.broadcast(UserJoinedEvent {
+					user: new_user.clone(),
+				});
+				if result.is_err() {
+					error!("Error broadcasting UserJoinedEvent!");
+				}
+				
+				Ok(new_user)
+			},
 			Err(_) => Err(MalformedDBResponse),
 		}
 	}
@@ -223,11 +268,19 @@ impl RealmChat for RealmChatServer {
 		}
 
 		let result = query!("DELETE FROM user WHERE userid = ?",user.userid).execute(&self.db_pool).await;
-
-		//TODO: tell everyone
 		
 		match result {
-			Ok(_) => Ok(()),
+			Ok(_) => {
+				let result = self.packet_manager.lock().await.broadcast(UserLeftEvent {
+					user: user.clone(),
+				});
+				
+				if result.is_err() {
+					error!("Error broadcasting UserLeftEvent!");
+				}
+				
+				Ok(())
+			},
 			Err(_) => Err(MalformedDBResponse),
 		}	
 	}
@@ -238,7 +291,7 @@ impl RealmChat for RealmChatServer {
 		}
 
 		// Assert all the data in message is correct
-		message.user = self.inner_get_user(&message.user.userid).await.unwrap();
+		message.user = self.inner_get_user(&message.user.userid).await?;
 
 		match &message.data { // Check that the sender is the owner of the referencing msg
 			MessageData::Edit(e) => {
@@ -268,7 +321,7 @@ impl RealmChat for RealmChatServer {
 			return Err(RoomNotFound)
 		}
 
-		message.room = self.inner_get_room(&stoken, &message.room.roomid).await.unwrap();
+		message.room = self.inner_get_room(&stoken, &message.room.roomid).await?;
 
 		let result = match &message.data {
 			MessageData::Text(text) => {
@@ -300,8 +353,14 @@ impl RealmChat for RealmChatServer {
 		};
 
 		match result {
-			Ok(id) => {
-				//TODO: Tell everyone
+			Ok(_) => {
+				let result = self.packet_manager.lock().await.broadcast(NewMessageEvent {
+					message: message.clone(),
+				});
+				
+				if result.is_err() {
+					error!("Error broadcasting NewMessageEvent!");
+				}
 
 				Ok(message)
 			},
@@ -309,7 +368,7 @@ impl RealmChat for RealmChatServer {
 		}
 	}
 
-	async fn start_typing(self, _: Context, stoken: String, userid: String, roomid: String) -> ErrorCode { //TODO: auth for all of these
+	async fn start_typing(self, _: Context, stoken: String, userid: String, roomid: String) -> ErrorCode {
 		todo!()
 	}
 
@@ -379,35 +438,37 @@ impl RealmChat for RealmChatServer {
 	}
 
 	async fn get_users(self, _: Context) -> Result<Vec<User>, ErrorCode> {
-		let result = query_as!(User, "SELECT * FROM user").fetch_all(&self.db_pool).await;
-
-		match result {
-			Ok(users) => Ok(users),
-			Err(_) => Err(Error),
-		}
+		self.inner_get_all_users().await
 	}
 
-	async fn get_online_users(self, _: Context) -> Result<Vec<User>, ErrorCode> {
-		let result = query_as!(User, "SELECT * FROM user WHERE online = true").fetch_all(&self.db_pool).await;
-
-		match result {
-			Ok(users) => Ok(users),
-			Err(_) => Err(Error),
-		}
-	}
+	// async fn get_online_users(self, _: Context) -> Result<Vec<User>, ErrorCode> {
+	// 	let result = query_as!(User, "SELECT * FROM user WHERE online = true").fetch_all(&self.db_pool).await;
+	// 
+	// 	match result {
+	// 		Ok(users) => Ok(users),
+	// 		Err(_) => Err(Error),
+	// 	}
+	// }
 
 	async fn create_room(self, _: Context, stoken: String, room: Room) -> Result<Room, ErrorCode> {
 		if !self.is_user_admin(&stoken).await {
 			return Err(Unauthorized)
 		}
 
-		let result = query!("INSERT INTO room (roomid, name, admin_only_send, admin_only_view) VALUES (?,?,?,?)",
-			room.roomid, room.name, room.admin_only_send, room.admin_only_view)
+		let result = query!("INSERT INTO room (roomid, admin_only_send, admin_only_view) VALUES (?,?,?)",
+			room.roomid, room.admin_only_send, room.admin_only_view)
 			.execute(&self.db_pool).await;
 
 		match result {
 			Ok(_) => {
-				// TODO: tell everyone
+				let result = self.packet_manager.lock().await.broadcast(NewRoomEvent {
+					room: room.clone(),
+				});
+				
+				if result.is_err() {
+					error!("Error broadcasting NewRoomEvent!");
+				}
+				
 				Ok(room)
 			}
 			Err(_) => Err(MalformedDBResponse)
@@ -423,23 +484,76 @@ impl RealmChat for RealmChatServer {
 
 		match result {
 			Ok(_) => {
-				// TODO: tell everyone
+				let result = self.packet_manager.lock().await.broadcast(DeleteRoomEvent {
+					roomid,
+				});
+				
+				if result.is_err() {
+					error!("Error broadcasting DeleteRoomEvent!");
+				}
+				
 				Ok(())
 			}
 			Err(_) => Err(MalformedDBResponse)
 		}
 	}
 
-	async fn rename_room(self, _: Context, stoken: String, roomid: String, new_name: String) -> Result<(), ErrorCode> {
-		if !self.is_user_admin(&stoken).await {
+	// async fn rename_room(self, _: Context, stoken: String, roomid: String, new_name: String) -> Result<(), ErrorCode> {
+	// 	if !self.is_user_admin(&stoken).await {
+	// 		return Err(Unauthorized)
+	// 	}
+	// 
+	// 	let result = query!("UPDATE room SET name = ? WHERE roomid = ?", new_name, roomid).execute(&self.db_pool).await;
+	// 
+	// 	match result {
+	// 		Ok(_) => {
+	// 			// TODO: tell everyone
+	// 			Ok(())
+	// 		}
+	// 		Err(_) => Err(MalformedDBResponse)
+	// 	}
+	// }
+	
+	async fn promote_user(self, _: Context, stoken: String, userid: String) -> Result<(), ErrorCode> {
+		if !self.is_user_owner(&stoken).await {
 			return Err(Unauthorized)
 		}
-
-		let result = query!("UPDATE room SET name = ? WHERE roomid = ?", new_name, roomid).execute(&self.db_pool).await;
-
+		
+		let result = query!("UPDATE user SET admin = true WHERE userid = ?", userid).execute(&self.db_pool).await;
+		
 		match result {
 			Ok(_) => {
-				// TODO: tell everyone
+				let result = self.packet_manager.lock().await.broadcast(PromotedUserEvent {
+					userid,
+				});
+				
+				if result.is_err() {
+					error!("Error broadcasting PromotedUserEvent!");
+				}
+
+				Ok(())
+			}
+			Err(_) => Err(MalformedDBResponse)
+		}
+	}
+	
+	async fn demote_user(self, _: Context, stoken: String, userid: String) -> Result<(), ErrorCode> {
+		if !self.is_user_owner(&stoken).await {
+			return Err(Unauthorized)
+		}
+		
+		let result = query!("UPDATE user SET admin = false WHERE userid = ?", userid).execute(&self.db_pool).await;
+		
+		match result {
+			Ok(_) => {
+				let result = self.packet_manager.lock().await.broadcast(DemotedUserEvent {
+					userid,
+				});
+				
+				if result.is_err() {
+					error!("Error broadcasting DemotedUserEvent!");
+				}
+
 				Ok(())
 			}
 			Err(_) => Err(MalformedDBResponse)
@@ -455,7 +569,14 @@ impl RealmChat for RealmChatServer {
 
 		match result {
 			Ok(_) => {
-				// TODO: tell everyone
+				let result = self.packet_manager.lock().await.broadcast(KickedUserEvent {
+					userid,
+				});
+				
+				if result.is_err() {
+					error!("Error broadcasting KickedUserEvent!");
+				}
+				
 				Ok(())
 			}
 			Err(_) => Err(MalformedDBResponse)
@@ -472,7 +593,14 @@ impl RealmChat for RealmChatServer {
 
 		match result {
 			Ok(_) => {
-				// TODO: tell everyone
+				let result = self.packet_manager.lock().await.broadcast(BannedUserEvent {
+					userid,
+				});
+				
+				if result.is_err() {
+					error!("Error broadcasting BannedUserEvent!");
+				}
+				
 				Ok(())
 			}
 			Err(_) => Err(MalformedDBResponse)
@@ -487,10 +615,7 @@ impl RealmChat for RealmChatServer {
 		let result = query!("DELETE FROM banned WHERE userid = ?", userid).execute(&self.db_pool).await;
 
 		match result {
-			Ok(_) => {
-				// TODO: tell everyone
-				Ok(())
-			}
+			Ok(_) => Ok(()),
 			Err(_) => Err(MalformedDBResponse)
 		}
 	}
