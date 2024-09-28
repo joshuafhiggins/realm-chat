@@ -33,8 +33,6 @@ const FETCH_MESSAGE: &str = "SELECT message.*,
         room.id AS 'room_id', room.roomid AS 'room_roomid', room.admin_only_send AS 'room_admin_only_send', room.admin_only_view AS 'room_admin_only_view',
         user.id AS 'user_id', user.userid AS 'user_userid', user.name AS 'user_name', user.owner AS 'user_owner', user.admin AS 'user_admin'
 	    FROM message INNER JOIN room ON message.room = room.id INNER JOIN user ON message.user = user.id WHERE room.admin_only_view = ? OR false";
-// room.name AS 'room_name',
-// user.online AS 'user_online', 
 
 impl RealmChatServer {
 	pub fn new(server_id: String, socket: SocketAddr, db_pool: Pool<Sqlite>, packet_manager: Arc<Mutex<PacketManager>>) -> RealmChatServer {
@@ -441,15 +439,6 @@ impl RealmChat for RealmChatServer {
 		self.inner_get_all_users().await
 	}
 
-	// async fn get_online_users(self, _: Context) -> Result<Vec<User>, ErrorCode> {
-	// 	let result = query_as!(User, "SELECT * FROM user WHERE online = true").fetch_all(&self.db_pool).await;
-	// 
-	// 	match result {
-	// 		Ok(users) => Ok(users),
-	// 		Err(_) => Err(Error),
-	// 	}
-	// }
-
 	async fn create_room(self, _: Context, stoken: String, room: Room) -> Result<Room, ErrorCode> {
 		if !self.is_user_admin(&stoken).await {
 			return Err(Unauthorized)
@@ -497,22 +486,6 @@ impl RealmChat for RealmChatServer {
 			Err(_) => Err(MalformedDBResponse)
 		}
 	}
-
-	// async fn rename_room(self, _: Context, stoken: String, roomid: String, new_name: String) -> Result<(), ErrorCode> {
-	// 	if !self.is_user_admin(&stoken).await {
-	// 		return Err(Unauthorized)
-	// 	}
-	// 
-	// 	let result = query!("UPDATE room SET name = ? WHERE roomid = ?", new_name, roomid).execute(&self.db_pool).await;
-	// 
-	// 	match result {
-	// 		Ok(_) => {
-	// 			// TODO: tell everyone
-	// 			Ok(())
-	// 		}
-	// 		Err(_) => Err(MalformedDBResponse)
-	// 	}
-	// }
 	
 	async fn promote_user(self, _: Context, stoken: String, userid: String) -> Result<(), ErrorCode> {
 		if !self.is_user_owner(&stoken).await {

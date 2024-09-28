@@ -4,16 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.86"
+anyhow = "1.0.89"
 futures = "0.3.30"
 tarpc = { version = "0.34.0", features = ["full"] }
-tokio = { version = "1.39.1", features = ["macros", "net", "rt-multi-thread"] }
+tokio = { version = "1.40.0", features = ["macros", "net", "rt-multi-thread"] }
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
-serde = { version = "1.0.204", features = ["derive"] }
+serde = { version = "1.0.210", features = ["derive"] }
 emojis = "0.6.3"
 chrono = { version = "0.4.38", features = ["serde"] }
-sqlx = { version = "0.8.0", features = [ "runtime-tokio", "tls-rustls", "sqlite", "chrono" ] }
+sqlx = { version = "0.8.2", features = [ "runtime-tokio", "tls-rustls", "sqlite", "chrono" ] }
 dotenvy = "0.15.7"
 moka = { version = "0.12.8", features = ["future"] }
 futures-util = "0.3.30"

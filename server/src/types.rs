@@ -29,10 +29,8 @@ pub trait RealmChat {
 	async fn get_room(stoken: String, roomid: String) -> Result<Room, ErrorCode>;
 	async fn get_user(userid: String) -> Result<User, ErrorCode>;
 	async fn get_users() -> Result<Vec<User>, ErrorCode>;
-	// async fn get_online_users() -> Result<Vec<User>, ErrorCode>;
 	async fn create_room(stoken: String, room: Room) -> Result<Room, ErrorCode>;
 	async fn delete_room(stoken: String, roomid: String) -> Result<(), ErrorCode>;
-	// async fn rename_room(stoken: String, roomid: String, new_name: String) -> Result<(), ErrorCode>;
 	async fn promote_user(stoken: String, userid: String) -> Result<(), ErrorCode>;
 	async fn demote_user(stoken: String, userid: String) -> Result<(), ErrorCode>;
 	async fn kick_user(stoken: String, userid: String) -> Result<(), ErrorCode>;
@@ -75,14 +73,12 @@ impl FromRow<'_, SqliteRow> for Message {
 				id: row.try_get("user_id")?,
 				userid: row.try_get("user_userid")?,
 				name: row.try_get("user_name")?,
-				// online: row.try_get("user_online")?,
 				owner: row.try_get("user_owner")?,
 				admin: row.try_get("user_admin")?,
 			},
 			room: Room {
 				id: row.try_get("room_id")?,
 				roomid: row.try_get("room_roomid")?,
-				// name: row.try_get("room_name")?,
 				admin_only_send: row.try_get("room_admin_only_send")?,
 				admin_only_view: row.try_get("room_admin_only_view")?,
 			},
@@ -156,7 +152,6 @@ pub struct User {
 	pub id: i64,
 	pub userid: String,
 	pub name: String,
-	// pub online: bool,
 	pub owner: bool,
 	pub admin: bool,
 }
@@ -165,7 +160,6 @@ pub struct User {
 pub struct Room {
 	pub id: i64,
 	pub roomid: String,
-	// pub name: String,
 	pub admin_only_send: bool,
 	pub admin_only_view: bool,
 }
