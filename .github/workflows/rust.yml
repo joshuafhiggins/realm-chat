@@ -21,10 +21,10 @@ jobs:
     - name: Setup Server Database
       run: cd server && sqlx database reset -y
     - name: Setup Auth Database
-      run: cd ../auth && sqlx database reset -y
+      run: cd auth && sqlx database reset -y
     - name: Build Client
-      run: cd ../client && cargo build --verbose
+      run: cd client && cargo build --verbose
     - name: Build Server
-      run: cd ../server && cargo build --verbose
+      run: cd server && cargo build --verbose
     - name: Build Auth Server
-      run: cd ../auth && cargo build --verbose
+      run: cd auth && cargo build --verbose
