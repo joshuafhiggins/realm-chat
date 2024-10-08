@@ -18,8 +18,12 @@ jobs:
     - uses: actions/checkout@v4
     - name: Install sqlx-cli
       run: cargo install sqlx-cli
+    - name: Setup Server Database
+      run: cd server && sqlx database reset -y
+    - name: Setup Auth Database
+      run: cd ../auth && sqlx database reset -y
     - name: Build Client
-      run: cd client && cargo build --verbose
+      run: cd ../client && cargo build --verbose
     - name: Build Server
       run: cd ../server && cargo build --verbose
     - name: Build Auth Server
