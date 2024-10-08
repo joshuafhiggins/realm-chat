@@ -65,8 +65,8 @@ async fn main() -> anyhow::Result<()> {
 	inner_manager.register_receive_packet::<UserJoinedEvent>(UserJoinedEventPacketBuilder)?;
 	inner_manager.register_receive_packet::<UserLeftEvent>(UserLeftEventPacketBuilder)?;
 	inner_manager.register_receive_packet::<NewMessageEvent>(NewMessageEventPacketBuilder)?;
-	inner_manager.register_receive_packet::<StartTypingEvent>(StartTypingEventPacketBuilder)?;
-	inner_manager.register_receive_packet::<StopTypingEvent>(StopTypingEventPacketBuilder)?;
+	// inner_manager.register_receive_packet::<StartTypingEvent>(StartTypingEventPacketBuilder)?;
+	// inner_manager.register_receive_packet::<StopTypingEvent>(StopTypingEventPacketBuilder)?;
 	inner_manager.register_receive_packet::<NewRoomEvent>(NewRoomEventPacketBuilder)?;
 	inner_manager.register_receive_packet::<DeleteRoomEvent>(DeleteRoomEventPacketBuilder)?;
 	inner_manager.register_receive_packet::<KickedUserEvent>(KickedUserEventPacketBuilder)?;
@@ -76,8 +76,8 @@ async fn main() -> anyhow::Result<()> {
 	inner_manager.register_send_packet::<UserJoinedEvent>()?;
 	inner_manager.register_send_packet::<UserLeftEvent>()?;
 	inner_manager.register_send_packet::<NewMessageEvent>()?;
-	inner_manager.register_send_packet::<StartTypingEvent>()?;
-	inner_manager.register_send_packet::<StopTypingEvent>()?;
+	// inner_manager.register_send_packet::<StartTypingEvent>()?;
+	// inner_manager.register_send_packet::<StopTypingEvent>()?;
 	inner_manager.register_send_packet::<NewRoomEvent>()?;
 	inner_manager.register_send_packet::<DeleteRoomEvent>()?;
 	inner_manager.register_send_packet::<KickedUserEvent>()?;
@@ -86,7 +86,7 @@ async fn main() -> anyhow::Result<()> {
 	inner_manager.async_init_server(
 		ServerConfig::new(
 			SocketAddr::from((IpAddr::V6(Ipv6Addr::LOCALHOST), port-1)).to_string(),
-			0, None, 10, 10)).await?;
+			0, None, 8, 8)).await?;
 	
 	let manager = Arc::new(Mutex::new(inner_manager));
 	info!("Listening on port {}", port-1);

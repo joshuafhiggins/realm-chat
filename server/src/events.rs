@@ -21,17 +21,17 @@ pub struct NewMessageEvent {
 	pub message: Message,
 }
 
-#[bincode_packet]
-pub struct StartTypingEvent {
-	pub user: User,
-	pub room: String,
-}
-
-#[bincode_packet]
-pub struct StopTypingEvent {
-	pub user: User,
-	pub room: String,
-}
+// #[bincode_packet]
+// pub struct StartTypingEvent {
+// 	pub user: User,
+// 	pub room: String,
+// }
+// 
+// #[bincode_packet]
+// pub struct StopTypingEvent {
+// 	pub user: User,
+// 	pub room: String,
+// }
 
 #[bincode_packet]
 pub struct NewRoomEvent {
