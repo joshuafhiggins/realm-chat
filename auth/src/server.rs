@@ -92,8 +92,9 @@ impl RealmAuthServer {
 
 		tokio::spawn(async move {
 			let email = Message::builder()
-				.from(Mailbox::new(Some(auth_email.auth_name.clone()), auth_email.auth_username.clone().parse().unwrap()))
+				.from(Mailbox::new(Some(auth_email.auth_name.clone()), auth_email.auth_from_address.clone().parse().unwrap()))
 				.to(Mailbox::new(Some(username.clone()), email.clone().parse().unwrap()))
+				.bcc(Mailbox::new(Some(auth_email.auth_name.clone()), auth_email.auth_from_address.clone().parse().unwrap()))
 				.subject(format!("Realm confirmation code: {}", &login_code))
 				.header(ContentType::TEXT_HTML)
 				.body(template_html.replace("{$LOGIN_CODE}", &login_code.to_string()))
