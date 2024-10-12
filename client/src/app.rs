@@ -1,6 +1,10 @@
+use tarpc::context;
+use tarpc::tokio_serde::formats::Json;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::{Receiver, Sender};
-use tracing::log::info;
+use tracing::log::*;
+use realm_auth::types::RealmAuthClient;
+use realm_shared::types::ErrorCode::*;
 use realm_shared::types::ErrorCode;
 use crate::types::ClientUser;
 use crate::ui::panels;
@@ -40,6 +44,9 @@ pub struct TemplateApp {
 	pub login_start_channel: (Sender<Result<(), ErrorCode>>, Receiver<Result<(), ErrorCode>>),
 	#[serde(skip)]
 	pub login_ending_channel: (Sender<Result<String, ErrorCode>>, Receiver<Result<String, ErrorCode>>),
+	
+	#[serde(skip)]
+	pub fetching_user_data_channel: (Sender<Result<ClientUser, ErrorCode>>, Receiver<Result<ClientUser, ErrorCode>>),
 }
 
 impl Default for TemplateApp {
@@ -63,6 +70,8 @@ impl Default for TemplateApp {
 			login_window_email: String::new(),
 			
 			signup_window_open: false,
+			
+			fetching_user_data_channel: broadcast::channel(10),
 		}
 	}
 }
@@ -101,9 +110,72 @@ impl eframe::App for TemplateApp {
 				Ok(token) => {
 					info!("Login successful! Token: {token}");
 					self.login_ready_for_code_input = false;
+					self.login_window_open = false;
+					self.signup_window_open = false;
+					self.login_window_code.clear();
+
+					info!("Fetching user data...");
+					let send_channel = self.fetching_user_data_channel.0.clone();
+					let server_address = self.login_window_server_address.clone();
+					let username = self.login_window_username.clone();
 					
+					let _handle = tokio::spawn(async move {
+						let mut transport = tarpc::serde_transport::tcp::connect(&server_address, Json::default);
+						transport.config_mut().max_frame_length(usize::MAX);
+
+						let result = transport.await;
+						let connection = match result {
+							Ok(connection) => connection,
+							Err(e) => {
+								tracing::error!("Failed to connect to server: {}", e);
+								return;
+							}
+						};
+
+						let client = RealmAuthClient::new(tarpc::client::Config::default(), connection).spawn();
+						let result = client.get_all_data(context::current(), username, token.clone()).await;
+
+						match result {
+							Ok(r) => {
+								if let Err(code) = r {
+									send_channel.send(Err(code)).unwrap();
+								} else {
+									let auth_user = r.unwrap();
+									let servers: Vec<String> = {
+										if auth_user.servers.eq("") {
+											Vec::new()
+										} else {
+											auth_user.servers.split('|').map(|s| s.to_string()).collect()
+										}
+									};
+									send_channel.send(Ok(ClientUser {
+										id: auth_user.id,
+										server_address,
+										username: auth_user.username,
+										email: auth_user.email,
+										//avatar: auth_user.avatar,
+										servers,
+										token,
+									})).unwrap();
+								}
+							},
+							Err(_) => {
+								send_channel.send(Err(RPCError)).unwrap();
+							},
+						};
+					});
 				},
 				Err(e) => tracing::error!("Error in login flow: {:?}", e),
+			}
+		}
+
+		while let Ok(result) = self.fetching_user_data_channel.1.try_recv() {
+			match result {
+				Ok(client_user) => {
+					info!("Got data! User: {:?}", client_user);
+					self.current_user = Some(client_user);
+				},
+				Err(e) => error!("Error in login flow: {:?}", e),
 			}
 		}
 

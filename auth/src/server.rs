@@ -70,7 +70,13 @@ impl RealmAuthServer {
 		match result {
 			Ok(row) => {
 				let token_long: &str = &row.tokens.unwrap();
-				let tokens = token_long.split(',').collect::<Vec<&str>>();
+				let tokens : Vec<&str> = {
+					if token_long.eq("") {
+						Vec::new()
+					} else {
+						token_long.split(',').collect::<Vec<&str>>()
+					}
+				};
 
 				for i in 0..tokens.len() {
 					if tokens.get(i).unwrap() == &token {
@@ -174,7 +180,13 @@ impl RealmAuth for RealmAuthServer {
 		match result {
 			Ok(row) => {
 				let token_long: &str = &row.tokens.unwrap();
-				let tokens = token_long.split(',').collect::<Vec<&str>>();
+				let tokens: Vec<&str> = {
+					if token_long.eq("") {
+						Vec::new()
+					} else {
+						token_long.split(',').collect::<Vec<&str>>()
+					}
+				};
 
 				for token in tokens {
 					let hash = Sha3_256::new().chain(format!("{}{}{}{}", token, server_id, domain, tarpc_port)).finalize();
@@ -288,7 +300,7 @@ impl RealmAuth for RealmAuthServer {
 				let mut tokens: Vec<&str> = {
 					if token_long.eq("") {
 						Vec::new()
-					} else { 
+					} else {
 						token_long.split(',').collect::<Vec<&str>>()
 					}
 				};
@@ -411,7 +423,13 @@ impl RealmAuth for RealmAuthServer {
 		match result {
 			Ok(row) => {
 				let token_long: &str = &row.tokens.unwrap();
-				let mut tokens = token_long.split(',').collect::<Vec<&str>>();
+				let mut tokens: Vec<&str> = {
+					if token_long.eq("") {
+						Vec::new()
+					} else {
+						token_long.split(',').collect::<Vec<&str>>()
+					}
+				};
 
 				for i in 0..tokens.len() {
 					if tokens.get(i).unwrap().eq(&token.as_str()) {
@@ -497,7 +515,13 @@ impl RealmAuth for RealmAuthServer {
 		let result = query!("SELECT servers FROM user WHERE username = ?", username).fetch_one(&self.db_pool).await;
 		match result {
 			Ok(row) => {
-				let mut vec_servers = row.servers.split('|').collect::<Vec<&str>>();
+				let mut vec_servers: Vec<&str> = {
+					if row.servers.eq("") {
+						Vec::new()
+					} else {
+						row.servers.split('|').collect::<Vec<&str>>()
+					}
+				};
 				for server in &vec_servers {
 					if server.eq(&domain) {
 						return Err(AlreadyJoinedServer);
@@ -525,7 +549,13 @@ impl RealmAuth for RealmAuthServer {
 		let result = query!("SELECT servers FROM user WHERE username = ?", username).fetch_one(&self.db_pool).await;
 		match result {
 			Ok(row) => {
-				let mut vec_servers = row.servers.split('|').collect::<Vec<&str>>();
+				let mut vec_servers: Vec<&str> = {
+					if row.servers.eq("") {
+						Vec::new()
+					} else {
+						row.servers.split('|').collect::<Vec<&str>>()
+					}
+				};
 				for i in 0..vec_servers.len() {
 					if vec_servers.get(i).unwrap().eq(&domain) {
 						vec_servers.remove(i);
@@ -553,7 +583,13 @@ impl RealmAuth for RealmAuthServer {
 		let result = query!("SELECT servers FROM user WHERE username = ?", username).fetch_one(&self.db_pool).await;
 		match result {
 			Ok(row) => {
-				let vec_servers = row.servers.split('|').collect::<Vec<&str>>();
+				let vec_servers: Vec<&str> = {
+					if row.servers.eq("") {
+						Vec::new()
+					} else {
+						row.servers.split('|').collect::<Vec<&str>>()
+					}
+				};
 				let mut servers = Vec::new();
 				for server in vec_servers {
 					servers.push(server.to_string())

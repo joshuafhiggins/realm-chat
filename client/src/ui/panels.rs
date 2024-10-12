@@ -4,28 +4,54 @@ use tarpc::tokio_serde::formats::Json;
 use realm_auth::types::RealmAuthClient;
 use realm_shared::types::ErrorCode::RPCError;
 use regex::Regex;
+use tracing::log::*;
 use crate::app::TemplateApp;
 
 pub fn top_panel(app: &mut TemplateApp, ctx: &Context) {
 	egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
 		egui::menu::bar(ui, |ui| {
-			ui.menu_button("File", |ui| {
-				if ui.button("Sign Up").clicked() {
-					app.signup_window_open = true;
-				}
+			if app.current_user.is_none() && ui.button("Sign Up").clicked() {
+				app.signup_window_open = true;
+			}
 
-				if ui.button("Login").clicked() {
-					app.login_window_open = true;
-				}
+			if app.current_user.is_none() && ui.button("Login").clicked() {
+				app.login_window_open = true;
+			}
 
-				if ui.button("Logout").clicked() {
-					// TODO: Logout
-				}
+			if app.current_user.is_some() && ui.button("Logout").clicked() {
+				let address = app.current_user.clone().unwrap().server_address;
+				let username = app.current_user.clone().unwrap().username;
+				let token = app.current_user.clone().unwrap().token;
+				
+				let _handle = tokio::spawn(async move {
+					let mut transport = tarpc::serde_transport::tcp::connect(&address, Json::default);
+					transport.config_mut().max_frame_length(usize::MAX);
+					
+					let result = transport.await;
+					let connection = match result {
+						Ok(connection) => connection,
+						Err(e) => {
+							tracing::error!("Failed to connect to server: {}", e);
+							return;
+						}
+					};
+					
+					let client = RealmAuthClient::new(tarpc::client::Config::default(), connection).spawn();
+					let result = client.sign_out(context::current(), username, token).await;
+					
+					match result {
+						Ok(_) => info!("Signed out!"), // TODO: properly handle this
+						Err(e) => error!("Error signing out: {:?}", e),
+					}
+				});
+				
+				app.current_user = None;
+			}
 
-				if ui.button("Quit").clicked() {
-					ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-				}
-			});
+			if ui.button("Quit").clicked() {
+				ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+			}
+			
 			ui.add_space(16.0);
 
 			egui::widgets::global_dark_light_mode_buttons(ui);
@@ -79,7 +105,7 @@ pub fn top_panel(app: &mut TemplateApp, ctx: &Context) {
 					};
 				});
 
-				ui.close_menu()
+				//ui.close_menu()
 			}
 		});
 
@@ -124,7 +150,7 @@ pub fn top_panel(app: &mut TemplateApp, ctx: &Context) {
 					};
 				});
 
-				ui.close_menu()
+				//ui.close_menu()
 			}
 		});
 
@@ -172,7 +198,7 @@ pub fn top_panel(app: &mut TemplateApp, ctx: &Context) {
 					}
 				});
 
-				ui.close_menu()
+				//ui.close_menu()
 			}
 		});
 }
@@ -215,5 +241,7 @@ pub fn messages(app: &mut TemplateApp, ctx: &Context) {
 		}
 
 		ui.separator();
+		
+		ui.label(format!("Current user: {:?}", app.current_user));
 	});
 }
