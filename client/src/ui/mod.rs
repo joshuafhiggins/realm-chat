@@ -1,1 +1,1 @@
-pub mod panels;
+pub mod gui;

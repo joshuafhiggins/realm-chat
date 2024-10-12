@@ -507,11 +507,13 @@ impl RealmAuth for RealmAuthServer {
 		}
 	}
 
-	async fn add_server(self, _: Context, username: String, token: String, domain: String) -> Result<(), ErrorCode> {
+	async fn add_server(self, _: Context, username: String, token: String, domain: String, port: u16) -> Result<(), ErrorCode> {
 		if !self.is_authorized(&username, &token).await? {
 			return Err(Unauthorized);
 		}
 
+		let address = format!("{}:{}", domain, port);
+		
 		let result = query!("SELECT servers FROM user WHERE username = ?", username).fetch_one(&self.db_pool).await;
 		match result {
 			Ok(row) => {
@@ -523,12 +525,12 @@ impl RealmAuth for RealmAuthServer {
 					}
 				};
 				for server in &vec_servers {
-					if server.eq(&domain) {
+					if server.eq(&address) {
 						return Err(AlreadyJoinedServer);
 					}
 				}
 
-				vec_servers.push(&domain);
+				vec_servers.push(&address);
 				let new_servers = vec_servers.join("|");
 
 				let result = query!("UPDATE user SET servers = ? WHERE username = ?", new_servers, username).fetch_one(&self.db_pool).await;
@@ -541,10 +543,12 @@ impl RealmAuth for RealmAuthServer {
 		}
 	}
 
-	async fn remove_server(self, _: Context, username: String, token: String, domain: String) -> Result<(), ErrorCode> {
+	async fn remove_server(self, _: Context, username: String, token: String, domain: String, port: u16) -> Result<(), ErrorCode> {
 		if !self.is_authorized(&username, &token).await? {
 			return Err(Unauthorized);
 		}
+
+		let address = format!("{}:{}", domain, port);
 
 		let result = query!("SELECT servers FROM user WHERE username = ?", username).fetch_one(&self.db_pool).await;
 		match result {
@@ -557,7 +561,7 @@ impl RealmAuth for RealmAuthServer {
 					}
 				};
 				for i in 0..vec_servers.len() {
-					if vec_servers.get(i).unwrap().eq(&domain) {
+					if vec_servers.get(i).unwrap().eq(&address) {
 						vec_servers.remove(i);
 
 						let new_servers = vec_servers.join("|");

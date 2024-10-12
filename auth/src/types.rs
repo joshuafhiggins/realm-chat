@@ -18,8 +18,8 @@ pub trait RealmAuth {
     async fn sign_out(username: String, token: String) -> Result<(), ErrorCode>;
     async fn delete_account_flow(username: String, token: String) -> Result<(), ErrorCode>;
     async fn finish_delete_account_flow(username: String, token: String, login_code: u32) -> Result<(), ErrorCode>;
-    async fn add_server(username: String, token: String, domain: String) -> Result<(), ErrorCode>;
-    async fn remove_server(username: String, token: String, domain: String) -> Result<(), ErrorCode>;
+    async fn add_server(username: String, token: String, domain: String, port: u16) -> Result<(), ErrorCode>;
+    async fn remove_server(username: String, token: String, domain: String, port: u16) -> Result<(), ErrorCode>;
     async fn get_joined_servers(username: String, token: String) -> Result<Vec<String>, ErrorCode>;
     
     //NOTE: Anyone can call

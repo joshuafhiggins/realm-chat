@@ -28,6 +28,6 @@ async fn main() -> eframe::Result {
     eframe::run_native(
         "Realm",
         native_options,
-        Box::new(|cc| Ok(Box::new(realm_client::app::TemplateApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(realm_client::app::RealmApp::new(cc)))),
     )
 }
