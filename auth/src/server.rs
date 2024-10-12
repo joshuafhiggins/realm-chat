@@ -2,17 +2,17 @@ use std::env;
 use std::net::SocketAddr;
 
 use chrono::Utc;
-use mail_send::{Credentials, SmtpClientBuilder};
-use mail_send::mail_builder::MessageBuilder;
+use lettre::{Message, SmtpTransport, Transport};
+use lettre::message::header::ContentType;
+use lettre::message::Mailbox;
+use lettre::transport::smtp::authentication::Credentials;
 use rand::Rng;
 use regex::Regex;
 use sha3::{Digest, Sha3_256};
 use sha3::digest::Update;
 use sqlx::{Pool, query, Sqlite};
-use sqlx::sqlite::{SqliteQueryResult, SqliteRow};
 use tarpc::context::Context;
 use tracing::*;
-use tracing::log::__private_api::log;
 use crate::types::{AuthEmail, AuthUser, RealmAuth};
 use realm_shared::types::ErrorCode;
 use realm_shared::types::ErrorCode::*;
@@ -23,7 +23,6 @@ pub struct RealmAuthServer {
 	pub db_pool: Pool<Sqlite>,
 	pub auth_email: AuthEmail,
 	pub template_html: String,
-	pub template_txt: String,
 	pub domain: String,
 }
 
@@ -34,27 +33,21 @@ impl RealmAuthServer {
 			db_pool,
 			auth_email,
 			template_html: std::fs::read_to_string("./login_email.html").expect("A login_email.html file is needed"),
-			template_txt: std::fs::read_to_string("./login_email.txt").expect("A login_email.txt file is needed"),
 			domain: env::var("DOMAIN").expect("DOMAIN must be set"),
 		}
 	}
 
-	fn gen_login_code(&self) -> u16 {
+	fn gen_login_code(&self) -> u32 {
 		let mut rng = rand::thread_rng();
-		let mut login_code: u16 = 0;
 
-		for n in 1..=6 {
-			if n == 1 {
-				login_code += rng.gen_range(1..=9);
-			}
-			login_code += rng.gen_range(0..=9) * (10^n);
-		}
+		let first_digit: u32 = rng.gen_range(1..10);
+		let remaining_digits: u32 = rng.gen_range(0..100_000);
 
-		login_code
+		first_digit * 100_000 + remaining_digits
 	}
 
 	async fn is_username_taken(&self, username: &str) -> Result<bool, ErrorCode> {
-		let result = query!("SELECT NOT EXISTS (SELECT 1 FROM user WHERE username = ?) AS does_exist", username).fetch_one(&self.db_pool).await;
+		let result = query!("SELECT EXISTS (SELECT 1 FROM user WHERE username = ?) AS does_exist", username).fetch_one(&self.db_pool).await;
 
 		match result {
 			Ok(row) => Ok(row.does_exist != 0),
@@ -63,7 +56,7 @@ impl RealmAuthServer {
 	}
 
 	async fn is_email_taken(&self, email: &str) -> Result<bool, ErrorCode> {
-		let result = query!("SELECT NOT EXISTS (SELECT 1 FROM user WHERE email = ?) AS does_exist", email).fetch_one(&self.db_pool).await;
+		let result = query!("SELECT EXISTS (SELECT 1 FROM user WHERE email = ?) AS does_exist", email).fetch_one(&self.db_pool).await;
 
 		match result {
 			Ok(row) => Ok(row.does_exist != 0),
@@ -81,57 +74,54 @@ impl RealmAuthServer {
 
 				for i in 0..tokens.len() {
 					if tokens.get(i).unwrap() == &token {
-						return Ok(true)
+						return Ok(true);
 					}
 				}
 
 				Ok(false)
-			},
+			}
 			Err(_) => Err(InvalidUsername),
 		}
 	}
 
-	async fn send_login_message(&self, username: &str, email: &str, login_code: u16) -> Result<(), ErrorCode> {
-		let message = MessageBuilder::new()
-			.from((self.auth_email.auth_name.clone(), self.auth_email.auth_username.clone()))
-			.to(vec![
-				(username, email),
-			])
-			.subject(format!("Realm confirmation code: {}", &login_code))
-			.html_body(self.template_html.replace("{}", &login_code.to_string()))
-			.text_body(self.template_txt.replace("{}", &login_code.to_string()));
+	fn send_login_message(&self, username: &str, email: &str, login_code: u32) { // -> Result<(), ErrorCode>
+		let auth_email = self.auth_email.clone();
+		let template_html = self.template_html.clone();
+		let username = username.to_string();
+		let email = email.to_string();
 
-		let result = SmtpClientBuilder::new(&self.auth_email.server_address, self.auth_email.server_port)
-			.implicit_tls(false)
-			.credentials(Credentials::new(&self.auth_email.auth_username, &self.auth_email.auth_password))
-			.connect()
-			.await;
+		tokio::spawn(async move {
+			let email = Message::builder()
+				.from(Mailbox::new(Some(auth_email.auth_name.clone()), auth_email.auth_username.clone().parse().unwrap()))
+				.to(Mailbox::new(Some(username.clone()), email.clone().parse().unwrap()))
+				.subject(format!("Realm confirmation code: {}", &login_code))
+				.header(ContentType::TEXT_HTML)
+				.body(template_html.replace("{$LOGIN_CODE}", &login_code.to_string()))
+				.unwrap();
 
-		match result {
-			Ok(mut client) => {
-				let result = client.send(message).await;
-				match result {
-					Ok(_) => {
-						Ok(())
-					}
-					Err(_) => {
-						Err(UnableToSendMail)
-					}
-				}
+			let creds = Credentials::new(auth_email.auth_username, auth_email.auth_password);
+
+			// Open a remote connection to gmail
+			let mailer = SmtpTransport::relay(&auth_email.server_address)
+				.unwrap()
+				.credentials(creds)
+				.build();
+
+			// Send the email
+			match mailer.send(&email) {
+				Ok(_) => info!("Email sent successfully!"),
+				Err(e) => error!("Could not send email: {e:?}"),
 			}
-			Err(_) => {
-				Err(UnableToConnectToMail)
-			}
-		}
+		});
 	}
 
-	async fn is_login_code_valid(&self, username: &str, login_code: u16) -> Result<bool, ErrorCode> {
+	async fn is_login_code_valid(&self, username: &str, login_code: u32) -> Result<bool, ErrorCode> {
 		let result = query!("SELECT login_code FROM user WHERE username = ?;", username).fetch_one(&self.db_pool).await;
 
 		match result {
 			Ok(row) => {
-				if row.login_code.unwrap() as u16 != login_code {
-					return Ok(false)
+				if row.login_code.unwrap() as u32 != login_code {
+					return Ok(false);
 				}
 				Ok(true)
 			}
@@ -141,19 +131,19 @@ impl RealmAuthServer {
 
 	fn is_username_valid(&self, username: &str) -> bool {
 		if !username.starts_with('@') || !username.contains(':') {
-			return false
+			return false;
 		}
 
 		let name = &username[1..username.find(':').unwrap()];
-		let domain = &username[username.find(':').unwrap()+1..];
+		let domain = &username[username.find(':').unwrap() + 1..];
 
 		let re = Regex::new(r"^[a-zA-Z0-9]+$").unwrap();
 		if !re.is_match(name) {
-			return false
+			return false;
 		}
 
 		if !domain.eq(&self.domain) {
-			return false
+			return false;
 		}
 
 		true
@@ -188,12 +178,12 @@ impl RealmAuth for RealmAuthServer {
 				for token in tokens {
 					let hash = Sha3_256::new().chain(format!("{}{}{}{}", token, server_id, domain, tarpc_port)).finalize();
 					if hex::encode(hash) == server_token {
-						return true
+						return true;
 					}
 				}
 
 				false
-			},
+			}
 			Err(_) => false,
 		}
 	}
@@ -202,26 +192,29 @@ impl RealmAuth for RealmAuthServer {
 		info!("API Request: create_account_flow( username -> {}, email -> {} )", username, email);
 
 		if !self.is_username_valid(&username) {
-			return Err(InvalidUsername)
+			return Err(InvalidUsername);
 		}
 
 		if self.is_username_taken(&username).await? {
-			return Err(UsernameTaken)
+			return Err(UsernameTaken);
 		}
 
 		if self.is_email_taken(&email).await? {
-			return Err(EmailTaken)
+			return Err(EmailTaken);
 		}
 
 		let code = self.gen_login_code();
-		self.send_login_message(&username, &email, code).await?;
+		self.send_login_message(&username, &email, code);
 
-		let result = query!("INSERT INTO user (username, email, avatar, login_code, tokens) VALUES (?, ?, '', ?, '')", username, email, code)
+		let result = query!("INSERT INTO user (username, email, new_email, avatar, servers, login_code, tokens) VALUES (?, ?, '', '', '', ?, '')", username, email, code)
 			.execute(&self.db_pool).await;
 
 		match result {
 			Ok(_) => Ok(()),
-			Err(_) => Err(Error)
+			Err(e) => {
+				error!("Error creating account: {e:?}");
+				Err(Error)
+			}
 		}
 	}
 
@@ -229,7 +222,7 @@ impl RealmAuth for RealmAuthServer {
 		info!("API Request: create_login_flow( username -> {}, email -> {} )", username.clone().unwrap_or("None".to_string()), email.clone().unwrap_or("None".to_string()));
 
 		if username.is_none() && email.is_none() {
-			return Err(Error)
+			return Err(Error);
 		}
 
 		if username.is_none() {
@@ -264,17 +257,20 @@ impl RealmAuth for RealmAuthServer {
 			.execute(&self.db_pool).await;
 
 		match result {
-			Ok(_) => self.send_login_message(&username.unwrap(), &email.unwrap(), code).await,
+			Ok(_) => {
+				self.send_login_message(&username.unwrap(), &email.unwrap(), code);
+				Ok(())
+			}
 			Err(_) => Err(InvalidUsername)
 		}
 	}
 
-	async fn finish_login_flow(self, _: Context, username: String, login_code: u16) -> Result<String, ErrorCode> {
+	async fn finish_login_flow(self, _: Context, username: String, login_code: u32) -> Result<String, ErrorCode> {
 		info!("API Request: finish_login_flow( username -> {}, login_code -> {} )", username, login_code);
 
 		if !self.is_login_code_valid(&username, login_code).await? {
 			error!("Unauthorized request made for finish_login_flow() (bad login code)! username -> {}, login_code -> {}", username, login_code);
-			return Err(InvalidLoginCode)
+			return Err(InvalidLoginCode);
 		}
 
 		self.reset_login_code(&username).await?;
@@ -307,11 +303,11 @@ impl RealmAuth for RealmAuthServer {
 		info!("API Request: change_email_flow( username -> {}, new_email -> {}, token -> {} )", username, new_email, token);
 
 		if !self.is_authorized(&username, &token).await? {
-			return Err(Unauthorized)
+			return Err(Unauthorized);
 		}
 
 		if self.is_email_taken(&new_email).await? {
-			return Err(EmailTaken)
+			return Err(EmailTaken);
 		}
 
 		let _ = query!("UPDATE user SET new_email = ? WHERE username = ?", new_email, username).execute(&self.db_pool).await.unwrap();
@@ -322,27 +318,30 @@ impl RealmAuth for RealmAuthServer {
 			.execute(&self.db_pool).await;
 
 		match result {
-			Ok(_) => self.send_login_message(&username, &new_email, code).await,
+			Ok(_) => {
+				self.send_login_message(&username, &new_email, code);
+				Ok(())
+			}
 			Err(_) => Err(InvalidUsername)
 		}
 	}
 
-	async fn finish_change_email_flow(self, _: Context, username: String, new_email: String, token: String, login_code: u16) -> Result<(), ErrorCode> {
+	async fn finish_change_email_flow(self, _: Context, username: String, new_email: String, token: String, login_code: u32) -> Result<(), ErrorCode> {
 		info!("API Request: finish_change_email_flow( username -> {}, new_email -> {}, token -> {}, login_code -> {} )", username, new_email, token, login_code);
 
 		if !self.is_authorized(&username, &token).await? {
 			error!("Unauthorized request made for finish_change_email_flow() (bad token)! username -> {}, token -> {}", username, token);
-			return Err(Unauthorized)
+			return Err(Unauthorized);
 		}
 
 		if self.is_email_taken(&new_email).await? {
 			error!("Email already taken for email change (but its the end of the flow?!) username -> {}, new_email -> {}", username, new_email);
-			return Err(EmailTaken)
+			return Err(EmailTaken);
 		}
 
 		if !self.is_login_code_valid(&username, login_code).await? {
 			error!("Unauthorized request made for finish_change_email_flow() (bad login code)! username -> {}, login_code -> {}", username, login_code);
-			return Err(InvalidLoginCode)
+			return Err(InvalidLoginCode);
 		}
 
 		let _ = query!("UPDATE user SET new_email = NULL WHERE username = ?", username).execute(&self.db_pool).await;
@@ -354,37 +353,12 @@ impl RealmAuth for RealmAuthServer {
 		Ok(())
 	}
 
-	// async fn change_username(self, _: Context, username: String, token: String, new_username: String) -> Result<(), ErrorCode> {
-	//     info!("API Request: change_username( username -> {}, token -> {}, new_username -> {} )", username, token, new_username);
-	//
-	//     if !self.is_authorized(&username, &token).await? {
-	//         error!("Unauthorized request made for change_username()! username -> {}, token -> {}", username, token);
-	//         return Err(Unauthorized)
-	//     }
-	//
-	//     if !self.is_username_valid(&new_username) {
-	//         error!("Malformed username in request for change_username()! new_username -> {}", new_username);
-	//         return Err(InvalidUsername)
-	//     }
-	//
-	//     if self.is_username_taken(&new_username).await? {
-	//         error!("Username is taken for change_username()! new_username -> {}", new_username);
-	//         return Err(UsernameTaken)
-	//     }
-	//
-	//     let result = query!("UPDATE user SET username = ? WHERE username = ?", new_username, username).execute(&self.db_pool).await;
-	//     match result {
-	//         Ok(_) => Ok(()),
-	//         Err(_) => Err(Error)
-	//     }
-	// }
-
 	async fn change_avatar(self, _: Context, username: String, token: String, new_avatar: String) -> Result<(), ErrorCode> {
 		info!("API Request: change_avatar( username -> {}, token -> {}, new_avatar -> {} )", username, token, new_avatar);
 
 		if !self.is_authorized(&username, &token).await? {
 			error!("Unauthorized request made for change_avatar()! username -> {}, token -> {}", username, token);
-			return Err(Unauthorized)
+			return Err(Unauthorized);
 		}
 
 		let result = query!("UPDATE user SET avatar = ? WHERE username = ?", new_avatar, username).execute(&self.db_pool).await;
@@ -399,7 +373,7 @@ impl RealmAuth for RealmAuthServer {
 
 		if !self.is_authorized(&username, &token).await? {
 			error!("Unauthorized request made for get_all_data()! username -> {}, token -> {}", username, token);
-			return Err(Unauthorized)
+			return Err(Unauthorized);
 		}
 
 		let result = query!(r"SELECT * FROM user WHERE username = ?", username).fetch_one(&self.db_pool).await;
@@ -413,10 +387,6 @@ impl RealmAuth for RealmAuthServer {
 					servers: row.servers,
 					login_code: None,
 					bigtoken: row.tokens,
-					google_oauth: row.google_oauth,
-					apple_oauth: row.apple_oauth,
-					github_oauth: row.github_oauth,
-					discord_oauth: row.discord_oauth,
 				})
 			}
 			Err(_) => {
@@ -458,11 +428,11 @@ impl RealmAuth for RealmAuthServer {
 
 				error!("Unauthorized request made for sign_out()! username -> {}, token -> {}", username, token);
 				Err(Unauthorized)
-			},
+			}
 			Err(_) => {
 				error!("Invalid username in request for get_avatar_for_user()! username -> {}", username);
 				Err(InvalidUsername)
-			},
+			}
 		}
 	}
 
@@ -470,7 +440,7 @@ impl RealmAuth for RealmAuthServer {
 		info!("API Request: delete_account_flow( username -> {}, token -> {} )", username, token);
 
 		if !self.is_authorized(&username, &token).await? {
-			return Err(Unauthorized)
+			return Err(Unauthorized);
 		}
 
 		let email = match query!("SELECT email FROM user WHERE username = ?;", username).fetch_one(&self.db_pool).await {
@@ -484,20 +454,23 @@ impl RealmAuth for RealmAuthServer {
 			.execute(&self.db_pool).await;
 
 		match result {
-			Ok(_) => self.send_login_message(&username, &email, code).await,
+			Ok(_) => {
+				self.send_login_message(&username, &email, code);
+				Ok(())
+			}
 			Err(_) => Err(InvalidUsername)
 		}
 	}
 
-	async fn finish_delete_account_flow(self, _: Context, username: String, token: String, login_code: u16) -> Result<(), ErrorCode> {
+	async fn finish_delete_account_flow(self, _: Context, username: String, token: String, login_code: u32) -> Result<(), ErrorCode> {
 		info!("API Request: finish_delete_account_flow( username -> {}, token -> {}, login_code -> {} )", username, token, login_code);
 
 		if !self.is_authorized(&username, &token).await? {
-			return Err(Unauthorized)
+			return Err(Unauthorized);
 		}
 
 		if !self.is_login_code_valid(&username, login_code).await? {
-			return Err(InvalidLoginCode)
+			return Err(InvalidLoginCode);
 		}
 
 		self.reset_login_code(&username).await?;
@@ -511,7 +484,7 @@ impl RealmAuth for RealmAuthServer {
 
 	async fn add_server(self, _: Context, username: String, token: String, domain: String) -> Result<(), ErrorCode> {
 		if !self.is_authorized(&username, &token).await? {
-			return Err(Unauthorized)
+			return Err(Unauthorized);
 		}
 
 		let result = query!("SELECT servers FROM user WHERE username = ?", username).fetch_one(&self.db_pool).await;
@@ -520,7 +493,7 @@ impl RealmAuth for RealmAuthServer {
 				let mut vec_servers = row.servers.split('|').collect::<Vec<&str>>();
 				for server in &vec_servers {
 					if server.eq(&domain) {
-						return Err(AlreadyJoinedServer)
+						return Err(AlreadyJoinedServer);
 					}
 				}
 
@@ -539,7 +512,7 @@ impl RealmAuth for RealmAuthServer {
 
 	async fn remove_server(self, _: Context, username: String, token: String, domain: String) -> Result<(), ErrorCode> {
 		if !self.is_authorized(&username, &token).await? {
-			return Err(Unauthorized)
+			return Err(Unauthorized);
 		}
 
 		let result = query!("SELECT servers FROM user WHERE username = ?", username).fetch_one(&self.db_pool).await;
@@ -555,10 +528,10 @@ impl RealmAuth for RealmAuthServer {
 						return match result {
 							Ok(_) => Ok(()),
 							Err(_) => Err(Error)
-						}
+						};
 					}
 				}
-				
+
 				Err(NotInServer)
 			}
 			Err(_) => Err(Error)
@@ -567,7 +540,7 @@ impl RealmAuth for RealmAuthServer {
 
 	async fn get_joined_servers(self, _: Context, username: String, token: String) -> Result<Vec<String>, ErrorCode> {
 		if !self.is_authorized(&username, &token).await? {
-			return Err(Unauthorized)
+			return Err(Unauthorized);
 		}
 
 		let result = query!("SELECT servers FROM user WHERE username = ?", username).fetch_one(&self.db_pool).await;
@@ -578,7 +551,7 @@ impl RealmAuth for RealmAuthServer {
 				for server in vec_servers {
 					servers.push(server.to_string())
 				}
-				
+
 				Ok(servers)
 			}
 			Err(_) => Err(Error)

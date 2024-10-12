@@ -21,4 +21,6 @@ pub enum ErrorCode {
     UserNotFound,
     DepthTooLarge,
     MalformedDBResponse,
+    
+    RPCError,
 }

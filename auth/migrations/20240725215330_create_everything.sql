@@ -7,9 +7,5 @@ CREATE TABLE IF NOT EXISTS user (
                 avatar TEXT NOT NULL,
                 servers TEXT NOT NULL,
                 login_code INT(6),
-                tokens TEXT,
-                google_oauth VARCHAR(255),
-                apple_oauth VARCHAR(255),
-                github_oauth VARCHAR(255),
-                discord_oauth VARCHAR(255)
+                tokens TEXT
              );

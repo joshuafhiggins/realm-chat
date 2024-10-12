@@ -127,7 +127,7 @@ impl RealmChatServer {
 	}
 	
 	async fn is_user_in_server(&self, userid: &str) -> bool {
-		let result = query!("SELECT NOT EXISTS (SELECT 1 FROM user WHERE userid = ?) AS does_exist", userid).fetch_one(&self.db_pool).await;
+		let result = query!("SELECT EXISTS (SELECT 1 FROM user WHERE userid = ?) AS does_exist", userid).fetch_one(&self.db_pool).await;
 		
 		match result {
 			Ok(record) => record.does_exist != 0,

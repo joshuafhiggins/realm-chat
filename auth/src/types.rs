@@ -7,17 +7,17 @@ pub trait RealmAuth {
     async fn server_token_validation(server_token: String, username: String, server_id: String, domain: String, tarpc_port: u16) -> bool;
     async fn create_account_flow(username: String, email: String) -> Result<(), ErrorCode>; //NOTE: Still require sign in flow
     async fn create_login_flow(username: Option<String>, email: Option<String>) -> Result<(), ErrorCode>;
-    async fn finish_login_flow(username: String, login_code: u16) -> Result<String, ErrorCode>;
+    async fn finish_login_flow(username: String, login_code: u32) -> Result<String, ErrorCode>;
     
     //NOTE: Need to be the user
     async fn change_email_flow(username: String, new_email: String, token: String) -> Result<(), ErrorCode>;
-    async fn finish_change_email_flow(username: String, new_email: String, token: String, login_code: u16) -> Result<(), ErrorCode>;
+    async fn finish_change_email_flow(username: String, new_email: String, token: String, login_code: u32) -> Result<(), ErrorCode>;
     // async fn change_username(username: String, token: String, new_username: String) -> Result<(), ErrorCode>;
     async fn change_avatar(username: String, token: String, new_avatar: String) -> Result<(), ErrorCode>;
     async fn get_all_data(username: String, token: String) -> Result<AuthUser, ErrorCode>;
     async fn sign_out(username: String, token: String) -> Result<(), ErrorCode>;
     async fn delete_account_flow(username: String, token: String) -> Result<(), ErrorCode>;
-    async fn finish_delete_account_flow(username: String, token: String, login_code: u16) -> Result<(), ErrorCode>;
+    async fn finish_delete_account_flow(username: String, token: String, login_code: u32) -> Result<(), ErrorCode>;
     async fn add_server(username: String, token: String, domain: String) -> Result<(), ErrorCode>;
     async fn remove_server(username: String, token: String, domain: String) -> Result<(), ErrorCode>;
     async fn get_joined_servers(username: String, token: String) -> Result<Vec<String>, ErrorCode>;
@@ -34,12 +34,8 @@ pub struct AuthUser {
     pub email: String,
     pub avatar: String,
     pub servers: String,
-    pub login_code: Option<u16>,
+    pub login_code: Option<u32>,
     pub bigtoken: Option<String>,
-    pub google_oauth: Option<String>,
-    pub apple_oauth: Option<String>,
-    pub github_oauth: Option<String>,
-    pub discord_oauth: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

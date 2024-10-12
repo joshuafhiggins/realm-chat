@@ -19,8 +19,8 @@ client/.gradle
 client/build
 
 server/.idea
-#server/.env
-#auth/.env
+server/.env
+auth/.env
 
 *.db
 *.db-shm
