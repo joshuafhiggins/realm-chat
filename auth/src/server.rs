@@ -285,7 +285,13 @@ impl RealmAuth for RealmAuthServer {
 		match result {
 			Ok(row) => {
 				let token_long: &str = &row.tokens.unwrap();
-				let mut tokens = token_long.split(',').collect::<Vec<&str>>();
+				let mut tokens: Vec<&str> = {
+					if token_long.eq("") {
+						Vec::new()
+					} else { 
+						token_long.split(',').collect::<Vec<&str>>()
+					}
+				};
 				tokens.push(&token);
 
 				let mega_token = tokens.join(",");
