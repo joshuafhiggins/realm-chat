@@ -1,3 +1,5 @@
+use realm_server::types::{RealmChatClient, Room};
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct CUser {
 	pub id: i64,
@@ -9,11 +11,13 @@ pub struct CUser {
 	pub token: String,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug)]
 pub struct CServer {
+	pub tarpc_conn: RealmChatClient,
 	pub server_id: String,
 	pub domain: String,
 	pub port: u16,
 	pub is_admin: bool,
 	pub is_owner: bool,
+	pub rooms: Vec<Room>
 }

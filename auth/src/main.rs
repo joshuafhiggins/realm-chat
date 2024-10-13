@@ -57,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
     migrate!().run(&db_pool).await?; // TODO: Do in Docker with Sqlx-cli
     info!("Migrations complete!");
 
-    let server_addr = (IpAddr::V6(Ipv6Addr::LOCALHOST), env::var("PORT").expect("PORT must be set").parse::<u16>().unwrap());
+    let server_addr = (IpAddr::V4("0.0.0.0".parse()?), env::var("PORT").expect("PORT must be set").parse::<u16>().unwrap());
 
     // JSON transport is provided by the json_transport tarpc module. It makes it easy
     // to start up a serde-powered json serialization strategy over TCP.

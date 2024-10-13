@@ -1,10 +1,11 @@
+use tarpc::client::RpcError;
 use tarpc::context;
 use tarpc::tokio_serde::formats::Json;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::log::*;
 use realm_auth::types::RealmAuthClient;
-use realm_server::types::{RealmChatClient, User};
+use realm_server::types::{RealmChatClient, Room, User};
 use realm_shared::stoken;
 use realm_shared::types::ErrorCode::*;
 use realm_shared::types::ErrorCode;
@@ -15,9 +16,6 @@ use crate::ui::gui;
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
 pub struct RealmApp {
-	// Example stuff:
-	pub label: String,
-	pub selected: bool,
 	#[serde(skip)]
 	pub selected_serverid: String,
 	#[serde(skip)]
@@ -58,6 +56,15 @@ pub struct RealmApp {
 	pub server_window_domain: String,
 	#[serde(skip)]
 	pub server_window_port: String,
+	
+	#[serde(skip)]
+	pub room_window_open: bool,
+	#[serde(skip)]
+	pub room_window_name: String,
+	#[serde(skip)]
+	pub room_window_admin_only_send: bool,
+	#[serde(skip)]
+	pub room_window_admin_only_view: bool,
 
 	#[serde(skip)]
 	pub login_start_channel: (Sender<Result<(), ErrorCode>>, Receiver<Result<(), ErrorCode>>),
@@ -74,14 +81,16 @@ pub struct RealmApp {
 
 	#[serde(skip)]
 	pub fetching_servers_channel: (Sender<Result<CServer, ErrorCode>>, Receiver<Result<CServer, ErrorCode>>),
+	
+	#[serde(skip)]
+	pub add_room_channel: (Sender<Result<CServer, ErrorCode>>, Receiver<Result<CServer, ErrorCode>>),
+	#[serde(skip)]
+	pub room_changes_channel: (Sender<Result<(CServer, Vec<Room>), ErrorCode>>, Receiver<Result<(CServer, Vec<Room>), ErrorCode>>)
 }
 
 impl Default for RealmApp {
 	fn default() -> Self {
 		Self {
-			// Example stuff:
-			label: "Hello World!".to_owned(),
-			selected: false,
 			selected_serverid: String::new(),
 			selected_roomid: String::new(),
 			current_user: None,
@@ -105,11 +114,18 @@ impl Default for RealmApp {
 			server_window_open: false,
 			server_window_domain: String::new(),
 			server_window_port: "5051".to_string(),
+			
+			room_window_open: false,
+			room_window_name: String::new(),
+			room_window_admin_only_send: false,
+			room_window_admin_only_view: false,
 
 			fetching_user_data_channel: broadcast::channel(10),
 			add_server_channel: broadcast::channel(10),
 			join_server_channel: broadcast::channel(10),
 			fetching_servers_channel: broadcast::channel(10),
+			add_room_channel: broadcast::channel(10),
+			room_changes_channel: broadcast::channel(10),
 		}
 	}
 }
@@ -171,9 +187,11 @@ pub fn fetch_user_data(send_channel: Sender<Result<CUser, ErrorCode>>, server_ad
 	});
 }
 
-pub fn fetch_server_data(addresses: Vec<String>, channel: Sender<Result<CServer, ErrorCode>>) {
+pub fn fetch_server_data(channel: Sender<Result<CServer, ErrorCode>>, addresses: Vec<String>, token: String, username: String) {
 	for server_address in addresses {
 		let send_channel = channel.clone();
+		let token = token.clone();
+		let userid = username.clone();
 
 		let _handle = tokio::spawn(async move {
 			let mut transport = tarpc::serde_transport::tcp::connect(&server_address, Json::default);
@@ -190,17 +208,44 @@ pub fn fetch_server_data(addresses: Vec<String>, channel: Sender<Result<CServer,
 
 			let client = RealmChatClient::new(tarpc::client::Config::default(), connection).spawn();
 			let info = client.get_info(context::current()).await.unwrap();
-			let is_admin = client.is_user_admin(context::current(), info.server_id.clone()).await.unwrap();
-			let is_owner = client.is_user_owner(context::current(), info.server_id.clone()).await.unwrap();
+			let domain = server_address.split(':').collect::<Vec<&str>>()[0].to_string();
+			let port = server_address.split(':').collect::<Vec<&str>>()[1].to_string().parse::<u16>().unwrap();
+			let stoken = stoken(&token, &info.server_id, &domain, port);
+			let is_admin = client.is_user_admin(context::current(), userid.clone()).await.unwrap();
+			let is_owner = client.is_user_owner(context::current(), userid.clone()).await.unwrap();
+			let rooms = client.get_rooms(context::current(), stoken.clone(), userid.clone()).await.unwrap().unwrap();
 			send_channel.send(Ok(CServer {
+				tarpc_conn: client,
 				server_id: info.server_id,
-				domain: server_address.split(':').collect::<Vec<&str>>()[0].to_string(),
-				port: server_address.split(':').collect::<Vec<&str>>()[1].to_string().parse::<u16>().unwrap(),
+				domain,
+				port,
 				is_admin,
 				is_owner,
+				rooms,
 			})).unwrap();
 		});
 	}
+}
+
+pub fn fetch_rooms_data(send_channel: Sender<Result<(CServer, Vec<Room>), ErrorCode>>, server: CServer, token: String, userid: String) {
+	let _handle = tokio::spawn(async move {
+		let result = server.tarpc_conn.get_rooms(
+			context::current(),
+			stoken(&token, &server.server_id, &server.domain, server.port),
+			userid
+		).await;
+		
+		match result {
+			Ok(r) => {
+				if let Ok(rooms) = r {
+					send_channel.send(Ok((server, rooms))).unwrap();
+				} else { 
+					send_channel.send(Err(r.unwrap_err())).unwrap();
+				}
+			}
+			Err(_) => { send_channel.send(Err(RPCError)).unwrap(); }
+		}
+	});
 }
 
 impl eframe::App for RealmApp {
@@ -225,7 +270,12 @@ impl eframe::App for RealmApp {
 		// Fetching servers
 		if self.active_servers.is_none() && self.current_user.is_some() {
 			self.active_servers = Some(Vec::new());
-			fetch_server_data(self.current_user.clone().unwrap().server_addresses.clone(), self.fetching_servers_channel.0.clone());
+			fetch_server_data(
+				self.fetching_servers_channel.0.clone(),
+				self.current_user.as_ref().unwrap().server_addresses.clone(), 
+				self.current_user.as_ref().unwrap().token.clone(),
+				self.current_user.as_ref().unwrap().username.clone()
+			);
 		}
 
 		// Starting the login flow
@@ -309,10 +359,17 @@ impl eframe::App for RealmApp {
 						let result = client.join_server(context::current(), stoken(&thread_token, &info.server_id, &domain, port), thread_username).await;
 						
 						match result {
-							Ok(_) => {
+							Ok(r) => {
 								info!("Joined server!");
+								match r {
+									Ok(_) => { send_channel.send(Ok(())).unwrap(); },
+									Err(e) => { send_channel.send(Err(e)).unwrap(); },
+								}
 							},
-							Err(e) => error!("Error joining server: {:?}", e),
+							Err(_) => {
+								error!("Error joining server");
+								send_channel.send(Err(RPCError)).unwrap();
+							},
 						}
 					});
 
@@ -327,7 +384,12 @@ impl eframe::App for RealmApp {
 			match result {
 				Ok(_) => {
 					info!("Successfully joined a server");
-					fetch_server_data(self.current_user.clone().unwrap().server_addresses.clone(), self.fetching_servers_channel.0.clone());
+					fetch_server_data(
+						self.fetching_servers_channel.0.clone(),
+						self.current_user.as_ref().unwrap().server_addresses.clone(), 
+						self.current_user.as_ref().unwrap().token.clone(),
+						self.current_user.as_ref().unwrap().username.clone()
+					);
 				},
 				Err(code) => {
 					error!("Error joining server: {:?}", code);
@@ -345,6 +407,40 @@ impl eframe::App for RealmApp {
 					}
 				}
 				Err(e) => error!("Error fetching server data: {:?}", e),
+			}
+		}
+		
+		// Added Room
+		while let Ok(result) = self.add_room_channel.1.try_recv() {
+			match result {
+				Ok(server) => {
+					info!("Got room add! Fetching them...");
+					fetch_rooms_data(
+						self.room_changes_channel.0.clone(), 
+						server, 
+						self.current_user.as_ref().unwrap().token.clone(),
+						self.current_user.as_ref().unwrap().username.clone()
+					);
+					self.room_window_open = false;
+				}
+				Err(e) => error!("Error adding room: {:?}", e),
+			}
+		}
+		
+		// Fetching rooms
+		while let Ok(result) = self.room_changes_channel.1.try_recv() {
+			match result {
+				Ok(tuple) => {
+					info!("Got room data for a server: {:?}", tuple);
+					if let Some(servers) = &mut self.active_servers {
+						for server in servers {
+							if server.server_id.eq(&tuple.0.server_id) {
+								server.rooms = tuple.1.clone();
+							}
+						}
+					}
+				}
+				Err(e) => error!("Error fetching room data: {:?}", e),
 			}
 		}
 

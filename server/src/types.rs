@@ -25,21 +25,21 @@ pub trait RealmChat {
 	async fn keep_typing(stoken: String, userid: String, roomid: String) -> ErrorCode; //NOTE: If a keep alive hasn't been received in 5 seconds, stop typing
 
 	//NOTE: Any user can call, if they are in the server
-	async fn get_message(stoken: String, id: i64) -> Result<Message, ErrorCode>;
-	async fn get_messages_since(stoken: String, time: DateTime<Utc>) -> Result<Vec<Message>, ErrorCode>;
-	async fn get_all_direct_replies(stoken: String, head: i64) -> Result<Vec<Message>, ErrorCode>;
-	async fn get_reply_chain(stoken: String, head: Message, depth: u8) -> Result<ReplyChain, ErrorCode>;
-	async fn get_rooms(stoken: String) -> Result<Vec<Room>, ErrorCode>;
-	async fn get_room(stoken: String, roomid: String) -> Result<Room, ErrorCode>;
+	async fn get_message(stoken: String, userid: String, id: i64) -> Result<Message, ErrorCode>;
+	async fn get_messages_since(stoken: String, userid: String, time: DateTime<Utc>) -> Result<Vec<Message>, ErrorCode>;
+	async fn get_all_direct_replies(stoken: String, userid: String, head: i64) -> Result<Vec<Message>, ErrorCode>;
+	async fn get_reply_chain(stoken: String, userid: String, head: Message, depth: u8) -> Result<ReplyChain, ErrorCode>;
+	async fn get_rooms(stoken: String, userid: String) -> Result<Vec<Room>, ErrorCode>;
+	async fn get_room(stoken: String, userid: String, roomid: String) -> Result<Room, ErrorCode>;
 	async fn get_user(userid: String) -> Result<User, ErrorCode>;
 	async fn get_users() -> Result<Vec<User>, ErrorCode>;
-	async fn create_room(stoken: String, room: Room) -> Result<Room, ErrorCode>;
-	async fn delete_room(stoken: String, roomid: String) -> Result<(), ErrorCode>;
-	async fn promote_user(stoken: String, userid: String) -> Result<(), ErrorCode>;
-	async fn demote_user(stoken: String, userid: String) -> Result<(), ErrorCode>;
-	async fn kick_user(stoken: String, userid: String) -> Result<(), ErrorCode>;
-	async fn ban_user(stoken: String, userid: String) -> Result<(), ErrorCode>;
-	async fn pardon_user(stoken: String, userid: String) -> Result<(), ErrorCode>;
+	async fn create_room(stoken: String, userid: String, room: Room) -> Result<Room, ErrorCode>;
+	async fn delete_room(stoken: String, userid: String, roomid: String) -> Result<(), ErrorCode>;
+	async fn promote_user(stoken: String, admin_userid: String, userid: String) -> Result<(), ErrorCode>;
+	async fn demote_user(stoken: String, owner_userid: String, userid: String) -> Result<(), ErrorCode>;
+	async fn kick_user(stoken: String, admin_userid: String, userid: String) -> Result<(), ErrorCode>;
+	async fn ban_user(stoken: String, admin_userid: String, userid: String) -> Result<(), ErrorCode>;
+	async fn pardon_user(stoken: String, admin_userid: String, userid: String) -> Result<(), ErrorCode>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

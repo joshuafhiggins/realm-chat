@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 use std::sync::{Arc};
 use std::time::Duration;
 use chrono::{DateTime, Utc};
-use durian::PacketManager;
 use moka::future::Cache;
 use sqlx::{FromRow, Pool, query_as, Sqlite};
 use sqlx::query;
@@ -26,7 +25,6 @@ pub struct RealmChatServer {
 	pub db_pool: Pool<Sqlite>,
 	pub typing_users: Vec<(String, String)>, //NOTE: user.userid, room.roomid
 	pub cache: Cache<String, String>,
-	pub packet_manager: Arc<Mutex<PacketManager>>,
 }
 
 const FETCH_MESSAGE: &str = "SELECT message.*,
@@ -35,7 +33,7 @@ const FETCH_MESSAGE: &str = "SELECT message.*,
 	    FROM message INNER JOIN room ON message.room = room.id INNER JOIN user ON message.user = user.id WHERE room.admin_only_view = ? OR false";
 
 impl RealmChatServer {
-	pub fn new(server_id: String, socket: SocketAddr, db_pool: Pool<Sqlite>, packet_manager: Arc<Mutex<PacketManager>>) -> RealmChatServer {
+	pub fn new(server_id: String, socket: SocketAddr, db_pool: Pool<Sqlite>) -> RealmChatServer {
 		RealmChatServer {
 			server_id,
 			port: env::var("PORT").unwrap().parse::<u16>().unwrap(),
@@ -48,7 +46,6 @@ impl RealmChatServer {
 				.time_to_idle(Duration::from_secs(5*60))
 				.time_to_live(Duration::from_secs(60*60))
 				.build(),
-			packet_manager,
 		}
 	}
 	
@@ -94,36 +91,20 @@ impl RealmChatServer {
 		}
 	}
 
-	pub async fn internal_is_user_admin(&self, stoken: &str) -> bool {
-		if let Some(userid) = self.cache.get(stoken).await {
-			let result = query!("SELECT admin FROM user WHERE userid = ?", userid).fetch_one(&self.db_pool).await;
-			return match result {
-				Ok(record) => {
-					if record.admin {
-						return true
-					}
-					false
-				}
-				Err(_) => false
-			}
+	pub async fn internal_is_user_admin(&self, userid: &str) -> bool {
+		let result = query!("SELECT admin FROM user WHERE userid = ?", userid).fetch_one(&self.db_pool).await;
+		match result {
+			Ok(record) => record.admin,
+			Err(_) => false
 		}
-		false
 	}
 	
-	pub async fn internal_is_user_owner(&self, stoken: &str) -> bool {
-		if let Some(userid) = self.cache.get(stoken).await {
-			let result = query!("SELECT owner FROM user WHERE userid = ?", userid).fetch_one(&self.db_pool).await;
-			return match result {
-				Ok(record) => {
-					if record.owner {
-						return true
-					}
-					false
-				}
-				Err(_) => false
-			}
+	pub async fn internal_is_user_owner(&self, userid: &str) -> bool {
+		let result = query!("SELECT owner FROM user WHERE userid = ?", userid).fetch_one(&self.db_pool).await;
+		match result {
+			Ok(record) => record.owner,
+			Err(_) => false
 		}
-		false
 	}
 	
 	async fn is_user_in_server(&self, userid: &str) -> bool {
@@ -135,8 +116,8 @@ impl RealmChatServer {
 		}
 	}
 
-	async fn inner_get_all_direct_replies(&self, stoken: &str, head: i64) -> Result<Vec<Message>, ErrorCode> {
-		let is_admin = self.internal_is_user_admin(stoken).await;
+	async fn inner_get_all_direct_replies(&self, userid: &str, head: i64) -> Result<Vec<Message>, ErrorCode> {
+		let is_admin = self.internal_is_user_admin(userid).await;
 		let result = sqlx::query(&format!("{}{}", FETCH_MESSAGE, "AND message.referencing_id = ?"))
 			.bind(is_admin)
 			.bind(head)
@@ -148,19 +129,19 @@ impl RealmChatServer {
 		}
 	}
 
-	async fn inner_get_reply_chain(&self, stoken: &str, head: Message, depth: u8) -> Result<ReplyChain, ErrorCode> {
+	async fn inner_get_reply_chain(&self, userid: &str, head: Message, depth: u8) -> Result<ReplyChain, ErrorCode> {
 		if depth > 8 {
 			return Err(DepthTooLarge)
 		}
 
-		let direct_replies = self.inner_get_all_direct_replies(stoken, head.id).await?;
+		let direct_replies = self.inner_get_all_direct_replies(userid, head.id).await?;
 		let replies = if direct_replies.is_empty() || depth == 0 {
 			None
 		} else {
 			let mut chains = Vec::new();
 
 			for reply in direct_replies {
-				chains.push(Box::pin(self.inner_get_reply_chain(stoken, reply, depth - 1)).await?);
+				chains.push(Box::pin(self.inner_get_reply_chain(userid, reply, depth - 1)).await?);
 			}
 
 			Some(chains)
@@ -174,8 +155,8 @@ impl RealmChatServer {
 		Ok(chain)
 	}
 
-	async fn inner_get_room(&self, stoken: &str, roomid: &str) -> Result<Room, ErrorCode> {
-		let is_admin = self.internal_is_user_admin(&stoken).await;
+	async fn inner_get_room(&self, userid: &str, roomid: &str) -> Result<Room, ErrorCode> {
+		let is_admin = self.internal_is_user_admin(&userid).await;
 		let result = query_as!(
 			Room, "SELECT * FROM room WHERE roomid = ? AND admin_only_view = ? OR false", is_admin, roomid).fetch_one(&self.db_pool).await;
 
@@ -203,8 +184,8 @@ impl RealmChatServer {
 		}
 	}
 
-	async fn inner_get_message(&self, stoken: &str, id: i64) -> Result<Message, ErrorCode> {
-		let is_admin = self.internal_is_user_admin(&stoken).await;
+	async fn inner_get_message(&self, userid: &str, id: i64) -> Result<Message, ErrorCode> {
+		let is_admin = self.internal_is_user_admin(&userid).await;
 		let result = sqlx::query(&format!("{}{}", FETCH_MESSAGE, "AND message.id = ?"))
 			.bind(is_admin)
 			.bind(id)
@@ -228,12 +209,12 @@ impl RealmChat for RealmChatServer {
 		}
 	}
 
-	async fn is_user_admin(self, _: Context, stoken: String) -> bool {
-		self.internal_is_user_admin(&stoken).await
+	async fn is_user_admin(self, _: Context, userid: String) -> bool {
+		self.internal_is_user_admin(&userid).await
 	}
 
-	async fn is_user_owner(self, _: Context, stoken: String) -> bool {
-		self.internal_is_user_owner(&stoken).await
+	async fn is_user_owner(self, _: Context, userid: String) -> bool {
+		self.internal_is_user_owner(&userid).await
 	}
 
 	async fn join_server(self, _: Context, stoken: String, userid: String) -> Result<User, ErrorCode> {
@@ -258,12 +239,12 @@ impl RealmChat for RealmChatServer {
 			Ok(_) => {
 				let new_user = self.inner_get_user(&userid).await?;
 				
-				let result = self.packet_manager.lock().await.broadcast(UserJoinedEvent {
-					user: new_user.clone(),
-				});
-				if result.is_err() {
-					error!("Error broadcasting UserJoinedEvent!");
-				}
+				// let result = self.packet_manager.lock().await.broadcast(UserJoinedEvent {
+				// 	user: new_user.clone(),
+				// });
+				// if result.is_err() {
+				// 	error!("Error broadcasting UserJoinedEvent!");
+				// }
 				
 				Ok(new_user)
 			},
@@ -286,13 +267,13 @@ impl RealmChat for RealmChatServer {
 		
 		match result {
 			Ok(_) => {
-				let result = self.packet_manager.lock().await.broadcast(UserLeftEvent {
-					user,
-				});
-				
-				if result.is_err() {
-					error!("Error broadcasting UserLeftEvent!");
-				}
+				// let result = self.packet_manager.lock().await.broadcast(UserLeftEvent {
+				// 	user,
+				// });
+				// 
+				// if result.is_err() {
+				// 	error!("Error broadcasting UserLeftEvent!");
+				// }
 				
 				Ok(())
 			},
@@ -310,21 +291,21 @@ impl RealmChat for RealmChatServer {
 
 		match &message.data { // Check that the sender is the owner of the referencing msg
 			MessageData::Edit(e) => {
-				let ref_msg = self.inner_get_message(&stoken, e.referencing_id).await?;
+				let ref_msg = self.inner_get_message(&message.user.userid, e.referencing_id).await?;
 				if !ref_msg.user.userid.eq(&message.user.userid) {
 					return Err(Unauthorized)
 				}
 			}
 			MessageData::Redaction(r)=> {
-				let ref_msg = self.inner_get_message(&stoken, r.referencing_id).await?;
-				if !ref_msg.user.userid.eq(&message.user.userid) || !self.internal_is_user_admin(&stoken).await {
+				let ref_msg = self.inner_get_message(&message.user.userid, r.referencing_id).await?;
+				if !ref_msg.user.userid.eq(&message.user.userid) || !self.internal_is_user_admin(&message.user.userid).await {
 					return Err(Unauthorized)
 				}
 			}
 			_ => {}
 		}
 
-		let is_admin = self.internal_is_user_admin(&stoken).await;
+		let is_admin = self.internal_is_user_admin(&message.user.userid).await;
 		let admin_only_send = query!(
 			"SELECT admin_only_send FROM room WHERE roomid = ?",
 			message.room.roomid).fetch_one(&self.db_pool).await;
@@ -336,7 +317,7 @@ impl RealmChat for RealmChatServer {
 			return Err(RoomNotFound)
 		}
 
-		message.room = self.inner_get_room(&stoken, &message.room.roomid).await?;
+		message.room = self.inner_get_room(&message.user.userid, &message.room.roomid).await?;
 
 		let result = match &message.data {
 			MessageData::Text(text) => {
@@ -369,13 +350,13 @@ impl RealmChat for RealmChatServer {
 
 		match result {
 			Ok(_) => {
-				let result = self.packet_manager.lock().await.broadcast(NewMessageEvent {
-					message: message.clone(),
-				});
-				
-				if result.is_err() {
-					error!("Error broadcasting NewMessageEvent!");
-				}
+				// let result = self.packet_manager.lock().await.broadcast(NewMessageEvent {
+				// 	message: message.clone(),
+				// });
+				// 
+				// if result.is_err() {
+				// 	error!("Error broadcasting NewMessageEvent!");
+				// }
 
 				Ok(message)
 			},
@@ -395,8 +376,12 @@ impl RealmChat for RealmChatServer {
 		todo!()
 	}
 
-	async fn get_message(self, _: Context, stoken: String, id: i64) -> Result<Message, ErrorCode> {
-		let is_admin = self.internal_is_user_admin(&stoken).await;
+	async fn get_message(self, _: Context, stoken: String, userid: String, id: i64) -> Result<Message, ErrorCode> {
+		if !self.is_stoken_valid(&userid, &stoken).await {
+			return Err(Unauthorized)
+		}
+		
+		let is_admin = self.internal_is_user_admin(&userid).await;
 		let result = sqlx::query(&format!("{}{}", FETCH_MESSAGE, "AND message.id = ?"))
 			.bind(is_admin)
 			.bind(id)
@@ -412,8 +397,12 @@ impl RealmChat for RealmChatServer {
 		}
 	}
 
-	async fn get_messages_since(self, _: Context, stoken: String, time: DateTime<Utc>) -> Result<Vec<Message>, ErrorCode> {
-		let is_admin = self.internal_is_user_admin(&stoken).await;
+	async fn get_messages_since(self, _: Context, stoken: String, userid: String, time: DateTime<Utc>) -> Result<Vec<Message>, ErrorCode> {
+		if !self.is_stoken_valid(&userid, &stoken).await {
+			return Err(Unauthorized)
+		}
+		
+		let is_admin = self.internal_is_user_admin(&userid).await;
 		let result = sqlx::query(&format!("{}{}", FETCH_MESSAGE, "AND message.timestamp >= ?"))
 			.bind(is_admin)
 			.bind(time)
@@ -425,18 +414,30 @@ impl RealmChat for RealmChatServer {
 		}
 	}
 
-	async fn get_all_direct_replies(self, _: Context, stoken: String, head: i64) -> Result<Vec<Message>, ErrorCode> {
-		self.inner_get_all_direct_replies(&stoken, head).await
+	async fn get_all_direct_replies(self, _: Context, stoken: String, userid: String, head: i64) -> Result<Vec<Message>, ErrorCode> {
+		if !self.is_stoken_valid(&userid, &stoken).await {
+			return Err(Unauthorized)
+		}
+		
+		self.inner_get_all_direct_replies(&userid, head).await
 	}
 
-	async fn get_reply_chain(self, _: Context, stoken: String, head: Message, depth: u8) -> Result<ReplyChain, ErrorCode> {
+	async fn get_reply_chain(self, _: Context, stoken: String, userid: String, head: Message, depth: u8) -> Result<ReplyChain, ErrorCode> {
+		if !self.is_stoken_valid(&userid, &stoken).await {
+			return Err(Unauthorized)
+		}
+		
 		self.inner_get_reply_chain(&stoken, head, depth).await
 	}
 
-	async fn get_rooms(self, _: Context, stoken: String) -> Result<Vec<Room>, ErrorCode> {
-		let is_admin = self.internal_is_user_admin(&stoken).await;
+	async fn get_rooms(self, _: Context, stoken: String, userid: String) -> Result<Vec<Room>, ErrorCode> {
+		if !self.is_stoken_valid(&userid, &stoken).await {
+			return Err(Unauthorized)
+		}
+		
+		let is_admin = self.internal_is_user_admin(&userid).await;
 		let result = query_as!(
-			Room, "SELECT * FROM room WHERE admin_only_view = ? OR false", is_admin).fetch_all(&self.db_pool).await;
+			Room, "SELECT * FROM room WHERE admin_only_view LIKE false or ?", is_admin).fetch_all(&self.db_pool).await;
 
 		match result {
 			Ok(rooms) => Ok(rooms),
@@ -444,8 +445,12 @@ impl RealmChat for RealmChatServer {
 		}
 	}
 
-	async fn get_room(self, _: Context, stoken: String, roomid: String) -> Result<Room, ErrorCode> {
-		self.inner_get_room(&stoken, &roomid).await
+	async fn get_room(self, _: Context, stoken: String, userid: String, roomid: String) -> Result<Room, ErrorCode> {
+		if !self.is_stoken_valid(&userid, &stoken).await {
+			return Err(Unauthorized)
+		}
+		
+		self.inner_get_room(&userid, &roomid).await
 	}
 
 	async fn get_user(self, _: Context, userid: String) -> Result<User, ErrorCode> {
@@ -456,8 +461,12 @@ impl RealmChat for RealmChatServer {
 		self.inner_get_all_users().await
 	}
 
-	async fn create_room(self, _: Context, stoken: String, room: Room) -> Result<Room, ErrorCode> {
-		if !self.internal_is_user_admin(&stoken).await {
+	async fn create_room(self, _: Context, stoken: String, userid: String, room: Room) -> Result<Room, ErrorCode> {
+		if !self.is_stoken_valid(&userid, &stoken).await {
+			return Err(Unauthorized)
+		}
+		
+		if !self.internal_is_user_admin(&userid).await {
 			return Err(Unauthorized)
 		}
 
@@ -467,13 +476,13 @@ impl RealmChat for RealmChatServer {
 
 		match result {
 			Ok(_) => {
-				let result = self.packet_manager.lock().await.broadcast(NewRoomEvent {
-					room: room.clone(),
-				});
-				
-				if result.is_err() {
-					error!("Error broadcasting NewRoomEvent!");
-				}
+				// let result = self.packet_manager.lock().await.broadcast(NewRoomEvent {
+				// 	room: room.clone(),
+				// });
+				// 
+				// if result.is_err() {
+				// 	error!("Error broadcasting NewRoomEvent!");
+				// }
 				
 				Ok(room)
 			}
@@ -481,8 +490,12 @@ impl RealmChat for RealmChatServer {
 		}
 	}
 
-	async fn delete_room(self, _: Context, stoken: String, roomid: String) -> Result<(), ErrorCode> {
-		if !self.internal_is_user_admin(&stoken).await {
+	async fn delete_room(self, _: Context, stoken: String, userid: String, roomid: String) -> Result<(), ErrorCode> {
+		if !self.is_stoken_valid(&userid, &stoken).await {
+			return Err(Unauthorized)
+		}
+		
+		if !self.internal_is_user_admin(&userid).await {
 			return Err(Unauthorized)
 		}
 
@@ -490,13 +503,13 @@ impl RealmChat for RealmChatServer {
 
 		match result {
 			Ok(_) => {
-				let result = self.packet_manager.lock().await.broadcast(DeleteRoomEvent {
-					roomid,
-				});
-				
-				if result.is_err() {
-					error!("Error broadcasting DeleteRoomEvent!");
-				}
+				// let result = self.packet_manager.lock().await.broadcast(DeleteRoomEvent {
+				// 	roomid,
+				// });
+				// 
+				// if result.is_err() {
+				// 	error!("Error broadcasting DeleteRoomEvent!");
+				// }
 				
 				Ok(())
 			}
@@ -504,8 +517,12 @@ impl RealmChat for RealmChatServer {
 		}
 	}
 	
-	async fn promote_user(self, _: Context, stoken: String, userid: String) -> Result<(), ErrorCode> {
-		if !self.internal_is_user_owner(&stoken).await {
+	async fn promote_user(self, _: Context, stoken: String, admin_userid: String, userid: String) -> Result<(), ErrorCode> {
+		if !self.is_stoken_valid(&admin_userid, &stoken).await {
+			return Err(Unauthorized)
+		}
+		
+		if !self.internal_is_user_owner(&admin_userid).await {
 			return Err(Unauthorized)
 		}
 		
@@ -513,13 +530,13 @@ impl RealmChat for RealmChatServer {
 		
 		match result {
 			Ok(_) => {
-				let result = self.packet_manager.lock().await.broadcast(PromotedUserEvent {
-					userid,
-				});
-				
-				if result.is_err() {
-					error!("Error broadcasting PromotedUserEvent!");
-				}
+				// let result = self.packet_manager.lock().await.broadcast(PromotedUserEvent {
+				// 	userid,
+				// });
+				// 
+				// if result.is_err() {
+				// 	error!("Error broadcasting PromotedUserEvent!");
+				// }
 
 				Ok(())
 			}
@@ -527,8 +544,12 @@ impl RealmChat for RealmChatServer {
 		}
 	}
 	
-	async fn demote_user(self, _: Context, stoken: String, userid: String) -> Result<(), ErrorCode> {
-		if !self.internal_is_user_owner(&stoken).await {
+	async fn demote_user(self, _: Context, stoken: String, owner_userid: String, userid: String) -> Result<(), ErrorCode> {
+		if !self.is_stoken_valid(&owner_userid, &stoken).await {
+			return Err(Unauthorized)
+		}
+		
+		if !self.internal_is_user_owner(&owner_userid).await {
 			return Err(Unauthorized)
 		}
 		
@@ -536,13 +557,13 @@ impl RealmChat for RealmChatServer {
 		
 		match result {
 			Ok(_) => {
-				let result = self.packet_manager.lock().await.broadcast(DemotedUserEvent {
-					userid,
-				});
-				
-				if result.is_err() {
-					error!("Error broadcasting DemotedUserEvent!");
-				}
+				// let result = self.packet_manager.lock().await.broadcast(DemotedUserEvent {
+				// 	userid,
+				// });
+				// 
+				// if result.is_err() {
+				// 	error!("Error broadcasting DemotedUserEvent!");
+				// }
 
 				Ok(())
 			}
@@ -550,8 +571,12 @@ impl RealmChat for RealmChatServer {
 		}
 	}
 
-	async fn kick_user(self, _: Context, stoken: String, userid: String) -> Result<(), ErrorCode> {
-		if !self.internal_is_user_admin(&stoken).await {
+	async fn kick_user(self, _: Context, stoken: String, admin_userid: String, userid: String) -> Result<(), ErrorCode> {
+		if !self.is_stoken_valid(&admin_userid, &stoken).await {
+			return Err(Unauthorized)
+		}
+		
+		if !self.internal_is_user_admin(&admin_userid).await {
 			return Err(Unauthorized)
 		}
 
@@ -559,13 +584,13 @@ impl RealmChat for RealmChatServer {
 
 		match result {
 			Ok(_) => {
-				let result = self.packet_manager.lock().await.broadcast(KickedUserEvent {
-					userid,
-				});
-				
-				if result.is_err() {
-					error!("Error broadcasting KickedUserEvent!");
-				}
+				// let result = self.packet_manager.lock().await.broadcast(KickedUserEvent {
+				// 	userid,
+				// });
+				// 
+				// if result.is_err() {
+				// 	error!("Error broadcasting KickedUserEvent!");
+				// }
 				
 				Ok(())
 			}
@@ -573,8 +598,12 @@ impl RealmChat for RealmChatServer {
 		}
 	}
 
-	async fn ban_user(self, _: Context, stoken: String, userid: String) -> Result<(), ErrorCode> {
-		if !self.internal_is_user_admin(&stoken).await {
+	async fn ban_user(self, _: Context, stoken: String, admin_userid: String, userid: String) -> Result<(), ErrorCode> {
+		if !self.is_stoken_valid(&admin_userid, &stoken).await {
+			return Err(Unauthorized)
+		}
+		
+		if !self.internal_is_user_admin(&admin_userid).await {
 			return Err(Unauthorized)
 		}
 
@@ -583,13 +612,13 @@ impl RealmChat for RealmChatServer {
 
 		match result {
 			Ok(_) => {
-				let result = self.packet_manager.lock().await.broadcast(BannedUserEvent {
-					userid,
-				});
-				
-				if result.is_err() {
-					error!("Error broadcasting BannedUserEvent!");
-				}
+				// let result = self.packet_manager.lock().await.broadcast(BannedUserEvent {
+				// 	userid,
+				// });
+				// 
+				// if result.is_err() {
+				// 	error!("Error broadcasting BannedUserEvent!");
+				// }
 				
 				Ok(())
 			}
@@ -597,8 +626,8 @@ impl RealmChat for RealmChatServer {
 		}
 	}
 
-	async fn pardon_user(self, _: Context, stoken: String, userid: String) -> Result<(), ErrorCode> {
-		if !self.internal_is_user_admin(&stoken).await {
+	async fn pardon_user(self, _: Context, stoken: String, admin_userid: String, userid: String) -> Result<(), ErrorCode> {
+		if !self.internal_is_user_admin(&admin_userid).await {
 			return Err(Unauthorized)
 		}
 

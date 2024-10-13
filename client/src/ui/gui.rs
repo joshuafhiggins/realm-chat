@@ -5,7 +5,10 @@ use realm_auth::types::RealmAuthClient;
 use realm_shared::types::ErrorCode::RPCError;
 use regex::Regex;
 use tracing::log::*;
+use realm_server::types::Room;
+use realm_shared::stoken;
 use crate::app::RealmApp;
+use crate::types::CServer;
 
 pub fn top_panel(app: &mut RealmApp, ctx: &Context) {
 	egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -49,6 +52,10 @@ pub fn top_panel(app: &mut RealmApp, ctx: &Context) {
 				app.saved_username = None;
 				app.saved_token = None;
 				app.saved_auth_address = None;
+				
+				app.active_servers = None;
+				app.selected_roomid.clear();
+				app.selected_serverid.clear();
 			}
 
 			if ui.button("Quit").clicked() {
@@ -72,10 +79,6 @@ pub fn servers(app: &mut RealmApp, ctx: &Context) {
 		});
 		ui.separator();
 
-		if ui.add(SelectableLabel::new(app.selected, "server")).clicked() {
-			app.selected = !app.selected;
-		}
-		
 		if let Some(active_servers) = &mut app.active_servers {
 			for server in active_servers {
 				if ui.add(SelectableLabel::new(server.server_id.eq(&app.selected_serverid), server.server_id.clone())).clicked() {
@@ -84,6 +87,7 @@ pub fn servers(app: &mut RealmApp, ctx: &Context) {
 					} else {
 						app.selected_serverid = server.server_id.clone();
 					}
+					app.selected_roomid.clear();
 				}
 			}
 		}
@@ -92,32 +96,43 @@ pub fn servers(app: &mut RealmApp, ctx: &Context) {
 
 pub fn rooms(app: &mut RealmApp, ctx: &Context) {
 	egui::SidePanel::left("rooms").show(ctx, |ui| {
-		ui.heading("Rooms");
+		let mut current_server: Option<&CServer> = None;
+		if let Some(servers) = &app.active_servers {
+			for server in servers {
+				if server.server_id.eq(&app.selected_serverid) {
+					current_server = Some(server);
+				}
+			}
+		}
+
+		ui.horizontal(|ui| {
+			ui.heading("Rooms");
+			if let Some(server) = current_server {
+				if server.is_admin && ui.button("+").clicked() {
+					app.room_window_open = true;
+				}
+			}
+		});
+		
 		ui.separator();
 
-		if ui.add(SelectableLabel::new(app.selected, "room")).clicked() {
-			app.selected = !app.selected;
+
+		if let Some(server) = current_server {
+			for room in &server.rooms {
+				if ui.add(SelectableLabel::new(room.roomid.eq(&app.selected_roomid), room.roomid.clone())).clicked() {
+					if app.selected_roomid.eq(&room.roomid) {
+						app.selected_roomid.clear();
+					} else {
+						app.selected_roomid = room.roomid.clone();
+					}
+				}
+			}
 		}
 	});
 }
 
 pub fn messages(app: &mut RealmApp, ctx: &Context) {
 	egui::CentralPanel::default().show(ctx, |ui| {
-		// The central panel the region left after adding TopPanel's and SidePanel's
-		ui.heading("eframe template");
-
-		ui.horizontal(|ui| {
-			ui.label("Write something: ");
-			ui.text_edit_singleline(&mut app.label);
-		});
-
-		ui.add(egui::Slider::new(&mut app.value, 0.0..=10.0).text("value"));
-		if ui.button("Increment").clicked() {
-			app.value += 1.0;
-		}
-
-		ui.separator();
-
 		ui.label(format!("Saved username: {:?}", app.saved_username));
 		ui.label(format!("Saved token: {:?}", app.saved_token));
 		ui.label(format!("Saved auth address: {:?}", app.saved_auth_address));
@@ -126,12 +141,13 @@ pub fn messages(app: &mut RealmApp, ctx: &Context) {
 
 		if let Some(servers) = &app.active_servers {
 			for server in servers {
-				ui.label(format!("Active server: {:?}", server));
+				ui.heading(&server.server_id);
+				ui.label(format!("{:?}", server));
 			}
 		}
-		
+
 		ui.separator();
-		
+
 		ui.label(format!("Current user: {:?}", app.current_user));
 	});
 }
@@ -337,6 +353,57 @@ pub fn modals(app: &mut RealmApp, ctx: &Context) {
 						Err(_) => { send_channel.send(Err(RPCError)).unwrap(); },
 					};
 				});
+			}
+		});
+	
+	egui::Window::new("Add Room")
+		.open(&mut app.room_window_open)
+		.min_size((500.0, 200.0))
+		.show(ctx, |ui| {
+			ui.horizontal(|ui| {
+				ui.label("Name: ");
+				ui.text_edit_singleline(&mut app.room_window_name);
+			});
+
+			ui.checkbox(&mut app.room_window_admin_only_send, "Only admins can send");
+			ui.checkbox(&mut app.room_window_admin_only_view, "Only admins can view");
+			
+			if ui.button("Add Room").clicked() {
+				for server in app.active_servers.clone().unwrap() {
+					if server.server_id.eq(&app.selected_serverid) {
+						let token = app.current_user.as_ref().unwrap().token.clone();
+						let roomid = app.room_window_name.clone();
+						let admin_only_send = app.room_window_admin_only_send;
+						let admin_only_view = app.room_window_admin_only_view;
+						let userid = app.current_user.as_ref().unwrap().username.clone();
+						let send_channel = app.add_room_channel.0.clone();
+						let _handle = tokio::spawn(async move {
+							let result = server.tarpc_conn.create_room(
+								context::current(), 
+								stoken(&token, &server.server_id, &server.domain, server.port),
+								userid,
+								Room {
+									id: 0,
+									roomid,
+									admin_only_send,
+									admin_only_view,
+								}
+							).await;
+							
+							match result {
+								Ok(r) => {
+									match r {
+										Ok(_) => { send_channel.send(Ok(server)).unwrap(); }
+										Err(e) => { send_channel.send(Err(e)).unwrap(); }
+									}
+								}
+								Err(_) => {
+									send_channel.send(Err(RPCError)).unwrap();
+								}
+							}
+						});
+					}
+				}
 			}
 		});
 }
