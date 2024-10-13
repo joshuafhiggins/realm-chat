@@ -189,8 +189,7 @@ impl RealmAuth for RealmAuthServer {
 				};
 
 				for token in tokens {
-					let hash = Sha3_256::new().chain(format!("{}{}{}{}", token, server_id, domain, tarpc_port)).finalize();
-					if hex::encode(hash) == server_token {
+					if realm_shared::stoken(token, &server_id, &domain, tarpc_port) == server_token {
 						return true;
 					}
 				}
@@ -533,7 +532,7 @@ impl RealmAuth for RealmAuthServer {
 				vec_servers.push(&address);
 				let new_servers = vec_servers.join("|");
 
-				let result = query!("UPDATE user SET servers = ? WHERE username = ?", new_servers, username).fetch_one(&self.db_pool).await;
+				let result = query!("UPDATE user SET servers = ? WHERE username = ?", new_servers, username).execute(&self.db_pool).await;
 				match result {
 					Ok(_) => Ok(()),
 					Err(_) => Err(Error)

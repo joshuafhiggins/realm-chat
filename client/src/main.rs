@@ -1,15 +1,13 @@
-use tracing::subscriber;
+use tracing::*;
 
 #[tokio::main]
 async fn main() -> eframe::Result {
-    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
-
     let subscriber = tracing_subscriber::fmt()
         .compact()
         .with_file(true)
         .with_line_number(true)
         .with_thread_ids(true)
-        .with_target(false)
+        .with_target(true)
         .finish();
 
     subscriber::set_global_default(subscriber).unwrap();

@@ -59,7 +59,7 @@ async fn main() -> anyhow::Result<()> {
 	let port = env::var("PORT").expect("PORT must be set").parse::<u16>()?;
 	let server_addr = (IpAddr::V6(Ipv6Addr::LOCALHOST), port);
 
-	let mut inner_manager = PacketManager::new_for_async();
+	let mut inner_manager = PacketManager::new();
 
 	inner_manager.register_receive_packet::<Greet>(GreetPacketBuilder)?;
 	inner_manager.register_receive_packet::<UserJoinedEvent>(UserJoinedEventPacketBuilder)?;
@@ -83,10 +83,10 @@ async fn main() -> anyhow::Result<()> {
 	inner_manager.register_send_packet::<KickedUserEvent>()?;
 	inner_manager.register_send_packet::<BannedUserEvent>()?;
 	
-	inner_manager.async_init_server(
+	inner_manager.init_server(
 		ServerConfig::new(
 			SocketAddr::from((IpAddr::V6(Ipv6Addr::LOCALHOST), port-1)).to_string(),
-			0, None, 8, 8)).await?;
+			0, None, 8, 8))?;
 	
 	let manager = Arc::new(Mutex::new(inner_manager));
 	info!("Listening on port {}", port-1);

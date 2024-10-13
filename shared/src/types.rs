@@ -23,4 +23,5 @@ pub enum ErrorCode {
     MalformedDBResponse,
     
     RPCError,
+    UnableToConnectToServer,
 }

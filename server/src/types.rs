@@ -11,8 +11,12 @@ use crate::types::MessageData::*;
 pub trait RealmChat {
 	async fn test(name: String) -> String;
 	
-	async fn join_server(stoken: String, user: User) -> Result<User, ErrorCode>;
-	async fn leave_server(stoken: String, user: User) -> Result<(), ErrorCode>;
+	async fn get_info() -> ServerInfo;
+	async fn is_user_admin(stoken: String) -> bool;
+	async fn is_user_owner(stoken: String) -> bool;
+	
+	async fn join_server(stoken: String, userid: String) -> Result<User, ErrorCode>;
+	async fn leave_server(stoken: String, userid: String) -> Result<(), ErrorCode>;
 
 	//NOTE: Any user authorized as themselves
 	async fn send_message(stoken: String, message: Message) -> Result<Message, ErrorCode>;
@@ -36,6 +40,11 @@ pub trait RealmChat {
 	async fn kick_user(stoken: String, userid: String) -> Result<(), ErrorCode>;
 	async fn ban_user(stoken: String, userid: String) -> Result<(), ErrorCode>;
 	async fn pardon_user(stoken: String, userid: String) -> Result<(), ErrorCode>;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerInfo {
+	pub server_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

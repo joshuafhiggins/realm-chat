@@ -19,7 +19,7 @@ pub fn top_panel(app: &mut RealmApp, ctx: &Context) {
 			}
 
 			if app.current_user.is_some() && ui.button("Logout").clicked() {
-				let address = app.current_user.clone().unwrap().server_address;
+				let address = app.current_user.clone().unwrap().auth_address;
 				let username = app.current_user.clone().unwrap().username;
 				let token = app.current_user.clone().unwrap().token;
 
@@ -75,6 +75,18 @@ pub fn servers(app: &mut RealmApp, ctx: &Context) {
 		if ui.add(SelectableLabel::new(app.selected, "server")).clicked() {
 			app.selected = !app.selected;
 		}
+		
+		if let Some(active_servers) = &mut app.active_servers {
+			for server in active_servers {
+				if ui.add(SelectableLabel::new(server.server_id.eq(&app.selected_serverid), server.server_id.clone())).clicked() {
+					if app.selected_serverid.eq(&server.server_id) {
+						app.selected_serverid.clear();
+					} else {
+						app.selected_serverid = server.server_id.clone();
+					}
+				}
+			}
+		}
 	});
 }
 
@@ -112,6 +124,14 @@ pub fn messages(app: &mut RealmApp, ctx: &Context) {
 		
 		ui.separator();
 
+		if let Some(servers) = &app.active_servers {
+			for server in servers {
+				ui.label(format!("Active server: {:?}", server));
+			}
+		}
+		
+		ui.separator();
+		
 		ui.label(format!("Current user: {:?}", app.current_user));
 	});
 }
@@ -282,10 +302,10 @@ pub fn modals(app: &mut RealmApp, ctx: &Context) {
 			if app.current_user.is_some() && ui.button("Add Server").clicked() {
 				let domain = app.server_window_domain.clone();
 				let port = app.server_window_port.clone();
-				let auth_address = app.current_user.clone().unwrap().server_address;
+				let auth_address = app.current_user.clone().unwrap().auth_address;
 				let auth_username = app.current_user.clone().unwrap().username;
 				let auth_token = app.current_user.clone().unwrap().token;
-				let send_channel = app.added_server_channel.0.clone();
+				let send_channel = app.add_server_channel.0.clone();
 
 				let _handle = tokio::spawn(async move {
 					let mut transport = tarpc::serde_transport::tcp::connect(auth_address, Json::default);
