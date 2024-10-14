@@ -1,4 +1,3 @@
-use tarpc::client::RpcError;
 use tarpc::context;
 use tarpc::tokio_serde::formats::Json;
 use tokio::sync::broadcast;
@@ -77,7 +76,11 @@ pub struct RealmApp {
 	#[serde(skip)]
 	pub add_server_channel: (Sender<Result<String, ErrorCode>>, Receiver<Result<String, ErrorCode>>),
 	#[serde(skip)]
+	pub remove_server_channel: (Sender<Result<(), ErrorCode>>, Receiver<Result<(), ErrorCode>>),
+	#[serde(skip)]
 	pub join_server_channel: (Sender<Result<(), ErrorCode>>, Receiver<Result<(), ErrorCode>>),
+	#[serde(skip)]
+	pub leave_server_channel: (Sender<Result<(String, String, u16), ErrorCode>>, Receiver<Result<(String, String, u16), ErrorCode>>),
 
 	#[serde(skip)]
 	pub fetching_servers_channel: (Sender<Result<CServer, ErrorCode>>, Receiver<Result<CServer, ErrorCode>>),
@@ -122,7 +125,9 @@ impl Default for RealmApp {
 
 			fetching_user_data_channel: broadcast::channel(10),
 			add_server_channel: broadcast::channel(10),
+			remove_server_channel: broadcast::channel(10),
 			join_server_channel: broadcast::channel(10),
+			leave_server_channel: broadcast::channel(10),
 			fetching_servers_channel: broadcast::channel(10),
 			add_room_channel: broadcast::channel(10),
 			room_changes_channel: broadcast::channel(10),
@@ -187,7 +192,7 @@ pub fn fetch_user_data(send_channel: Sender<Result<CUser, ErrorCode>>, server_ad
 	});
 }
 
-pub fn fetch_server_data(channel: Sender<Result<CServer, ErrorCode>>, addresses: Vec<String>, token: String, username: String) {
+pub fn fetch_server_data(channel: Sender<Result<CServer, ErrorCode>>, addresses: Vec<String>, token: String, username: String){
 	for server_address in addresses {
 		let send_channel = channel.clone();
 		let token = token.clone();
@@ -316,13 +321,13 @@ impl eframe::App for RealmApp {
 			match result {
 				Ok(client_user) => {
 					info!("Got data! User: {:?}", client_user);
-					self.current_user = Some(client_user);
+					self.current_user.replace(client_user);
 				}
 				Err(e) => error!("Error fetching data: {:?}", e),
 			}
 		}
 
-		// Adding a server
+		// Adding a server (auth)
 		while let Ok(result) = self.add_server_channel.1.try_recv() {
 			match result {
 				Ok(address) => {
@@ -393,6 +398,61 @@ impl eframe::App for RealmApp {
 				},
 				Err(code) => {
 					error!("Error joining server: {:?}", code);
+				}
+			}
+		}
+		
+		// Leaving a server
+		while let Ok(result) = self.leave_server_channel.1.try_recv() {
+			match result {
+				Ok((serverid, domain, port)) => {
+					info!("Successfully left a server");
+					self.active_servers.as_mut().unwrap().retain(|s| !s.server_id.eq(&serverid));
+					let send_channel = self.remove_server_channel.0.clone();
+					let auth_address = self.current_user.clone().unwrap().auth_address;
+					let username = self.current_user.clone().unwrap().username;
+					let token = self.current_user.clone().unwrap().token;
+					let _handle = tokio::spawn(async move {
+						let mut transport = tarpc::serde_transport::tcp::connect(&auth_address, Json::default);
+						transport.config_mut().max_frame_length(usize::MAX);
+
+						let result = transport.await;
+						let connection = match result {
+							Ok(connection) => connection,
+							Err(_) => {
+								send_channel.clone().send(Err(UnableToConnectToServer)).unwrap();
+								return;
+							}
+						};
+
+						let client = RealmAuthClient::new(tarpc::client::Config::default(), connection).spawn();
+						
+						let result = client.remove_server(context::current(), username, token, domain, port).await;
+						match result {
+							Ok(r) => { send_channel.send(r).unwrap(); },
+							Err(_) => { send_channel.send(Err(RPCError)).unwrap(); },
+						}
+					});
+				},
+				Err(code) => {
+					error!("Error leaving server: {:?}", code);
+				}
+			}
+		}
+		
+		// Removing a server (auth)
+		while let Ok(result) = self.remove_server_channel.1.try_recv() {
+			match result {
+				Ok(_) => {
+					let send_channel = self.fetching_user_data_channel.0.clone();
+					let server_address = self.saved_auth_address.clone().unwrap();
+					let username = self.saved_username.clone().unwrap();
+					let token = self.saved_token.clone().unwrap();
+					fetch_user_data(send_channel, server_address, username, token);
+					info!("Successfully removed a server");
+				}
+				Err(code) => {
+					error!("Error removing server: {:?}", code);
 				}
 			}
 		}

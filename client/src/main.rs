@@ -7,7 +7,7 @@ async fn main() -> eframe::Result {
         .with_file(true)
         .with_line_number(true)
         .with_thread_ids(true)
-        .with_target(true)
+        .with_target(false)
         .finish();
 
     subscriber::set_global_default(subscriber).unwrap();

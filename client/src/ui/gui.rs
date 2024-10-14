@@ -5,8 +5,9 @@ use realm_auth::types::RealmAuthClient;
 use realm_shared::types::ErrorCode::RPCError;
 use regex::Regex;
 use tracing::log::*;
-use realm_server::types::Room;
+use realm_server::types::{RealmChatClient, Room};
 use realm_shared::stoken;
+use realm_shared::types::ErrorCode;
 use crate::app::RealmApp;
 use crate::types::CServer;
 
@@ -75,6 +76,29 @@ pub fn servers(app: &mut RealmApp, ctx: &Context) {
 			ui.heading("Servers");
 			if app.current_user.is_some() && ui.button("+").clicked() {
 				app.server_window_open = true;
+			}
+			if !app.selected_serverid.is_empty() && ui.button("-").clicked() {
+				let server = app.active_servers.clone().unwrap().into_iter().find(|s| s.server_id.eq(&app.selected_serverid)).unwrap();
+				let token = app.current_user.as_ref().unwrap().token.clone();
+				let userid = app.current_user.as_ref().unwrap().username.clone();
+				let send_channel = app.leave_server_channel.0.clone();
+				let _handle = tokio::spawn(async move {
+					let result = server.tarpc_conn.leave_server(
+						context::current(),
+						stoken(&token, &server.server_id, &server.domain, server.port),
+						userid
+					).await;
+
+					match result {
+						Ok(r) => {
+							match r {
+								Ok(_) => send_channel.send(Ok((server.server_id.clone(), server.domain.clone(), server.port))).unwrap(),
+								Err(e) => send_channel.send(Err(e)).unwrap()
+							}
+						},
+						Err(_) => send_channel.send(Err(RPCError)).unwrap(),
+					}
+				});
 			}
 		});
 		ui.separator();
