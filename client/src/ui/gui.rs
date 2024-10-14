@@ -59,6 +59,10 @@ pub fn top_panel(app: &mut RealmApp, ctx: &Context) {
 				app.selected_roomid.clear();
 				app.selected_serverid.clear();
 			}
+			
+			if ui.button("Info").clicked() {
+				app.info_window_open = true;
+			}
 
 			if ui.button("Quit").clicked() {
 				ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -181,26 +185,35 @@ pub fn rooms(app: &mut RealmApp, ctx: &Context) {
 
 pub fn messages(app: &mut RealmApp, ctx: &Context) {
 	egui::CentralPanel::default().show(ctx, |ui| {
-		ui.label(format!("Saved username: {:?}", app.saved_username));
-		ui.label(format!("Saved token: {:?}", app.saved_token));
-		ui.label(format!("Saved auth address: {:?}", app.saved_auth_address));
 		
-		ui.separator();
-
-		if let Some(servers) = &app.active_servers {
-			for server in servers {
-				ui.heading(&server.server_id);
-				ui.label(format!("{:?}", server));
-			}
-		}
-
-		ui.separator();
-
-		ui.label(format!("Current user: {:?}", app.current_user));
 	});
 }
 
 pub fn modals(app: &mut RealmApp, ctx: &Context) {
+	egui::Window::new("Info")
+		.open(&mut app.info_window_open)
+		.min_size((500.0, 200.0))
+		.show(ctx, |ui| {
+			egui::ScrollArea::vertical().show(ui, |ui| {
+				ui.label(format!("Saved username: {:?}", app.saved_username));
+				ui.label(format!("Saved token: {:?}", app.saved_token));
+				ui.label(format!("Saved auth address: {:?}", app.saved_auth_address));
+
+				ui.separator();
+
+				if let Some(servers) = &app.active_servers {
+					for server in servers {
+						ui.heading(&server.server_id);
+						ui.label(format!("{:?}", server));
+					}
+				}
+
+				ui.separator();
+
+				ui.label(format!("Current user: {:?}", app.current_user));
+			});
+		});
+	
 	egui::Window::new("Signup")
 		.open(&mut app.signup_window_open)
 		.min_size((500.0, 200.0))

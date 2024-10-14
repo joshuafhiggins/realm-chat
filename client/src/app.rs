@@ -66,6 +66,9 @@ pub struct RealmApp {
 	pub room_window_admin_only_send: bool,
 	#[serde(skip)]
 	pub room_window_admin_only_view: bool,
+	
+	#[serde(skip)]
+	pub info_window_open: bool,
 
 	#[serde(skip)]
 	pub login_start_channel: (Sender<Result<(), ErrorCode>>, Receiver<Result<(), ErrorCode>>),
@@ -127,6 +130,8 @@ impl Default for RealmApp {
 			room_window_name: String::new(),
 			room_window_admin_only_send: false,
 			room_window_admin_only_view: false,
+			
+			info_window_open: false,
 
 			fetching_user_data_channel: broadcast::channel(10),
 			add_server_channel: broadcast::channel(10),
