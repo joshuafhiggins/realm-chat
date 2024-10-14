@@ -39,7 +39,9 @@ pub struct RealmApp {
 	#[serde(skip)]
 	pub login_window_code: String,
 	#[serde(skip)]
-	pub login_window_server_address: String,
+	pub login_window_server_domain: String,
+	#[serde(skip)]
+	pub login_window_server_port: String,
 	#[serde(skip)]
 	pub login_window_email: String,
 
@@ -106,7 +108,8 @@ impl Default for RealmApp {
 			login_window_open: false,
 			login_window_username: String::new(),
 			login_window_code: String::new(),
-			login_window_server_address: String::new(),
+			login_window_server_domain: String::new(),
+			login_window_server_port: "5052".to_string(),
 			login_start_channel: broadcast::channel(10),
 			login_ending_channel: broadcast::channel(10),
 			login_ready_for_code_input: false,
@@ -303,8 +306,9 @@ impl eframe::App for RealmApp {
 
 					info!("Fetching user data...");
 					let send_channel = self.fetching_user_data_channel.0.clone();
-					let server_address = self.login_window_server_address.clone();
-					let username = self.login_window_username.clone();
+					let server_address = format!("{}:{}", self.login_window_server_domain, self.login_window_server_port);
+					let port = self.login_window_server_port.clone().parse::<u16>().unwrap();
+					let username = format!("@{}:{}", self.login_window_username, self.login_window_server_domain);
 
 					self.saved_token = Some(token.clone());
 					self.saved_username = Some(username.clone());

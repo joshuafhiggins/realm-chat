@@ -182,8 +182,13 @@ pub fn modals(app: &mut RealmApp, ctx: &Context) {
 		.min_size((500.0, 200.0))
 		.show(ctx, |ui| {
 			ui.horizontal(|ui| {
-				ui.label("Server Address: ");
-				ui.text_edit_singleline(&mut app.login_window_server_address);
+				ui.label("Domain: ");
+				ui.text_edit_singleline(&mut app.login_window_server_domain);
+				ui.label("Port: ");
+				if ui.text_edit_singleline(&mut app.login_window_server_port).changed() {
+					let re = Regex::new(r"[^0-9]+").unwrap();
+					app.login_window_server_port = re.replace_all(&app.login_window_server_port, "").to_string();
+				}
 			});
 
 			ui.horizontal(|ui| {
@@ -197,8 +202,8 @@ pub fn modals(app: &mut RealmApp, ctx: &Context) {
 			});
 
 			if ui.button("Create Account").clicked() {
-				let login_window_server_address = app.login_window_server_address.clone();
-				let login_window_username = app.login_window_username.clone();
+				let login_window_server_address = format!("{}:{}", app.login_window_server_domain, app.login_window_server_port);
+				let login_window_username = format!("@{}:{}", app.login_window_username, app.login_window_server_domain);
 				let login_window_email = app.login_window_email.clone();
 				let send_channel = app.login_start_channel.0.clone();
 
@@ -233,8 +238,13 @@ pub fn modals(app: &mut RealmApp, ctx: &Context) {
 		.min_size((500.0, 200.0))
 		.show(ctx, |ui| {
 			ui.horizontal(|ui| {
-				ui.label("Server Address: ");
-				ui.text_edit_singleline(&mut app.login_window_server_address);
+				ui.label("Domain: ");
+				ui.text_edit_singleline(&mut app.login_window_server_domain);
+				ui.label("Port: ");
+				if ui.text_edit_singleline(&mut app.login_window_server_port).changed() {
+					let re = Regex::new(r"[^0-9]+").unwrap();
+					app.login_window_server_port = re.replace_all(&app.login_window_server_port, "").to_string();
+				}
 			});
 
 			ui.horizontal(|ui| {
@@ -243,8 +253,8 @@ pub fn modals(app: &mut RealmApp, ctx: &Context) {
 			});
 
 			if ui.button("Send Login Code").clicked() {
-				let login_window_server_address = app.login_window_server_address.clone();
-				let login_window_username = app.login_window_username.clone();
+				let login_window_server_address = format!("{}:{}", app.login_window_server_domain, app.login_window_server_port);
+				let login_window_username = format!("@{}:{}", app.login_window_username, app.login_window_server_domain);
 				let send_channel = app.login_start_channel.0.clone();
 
 				let _handle = tokio::spawn(async move {
@@ -286,9 +296,9 @@ pub fn modals(app: &mut RealmApp, ctx: &Context) {
 			});
 
 			if ui.button("Login").clicked() {
-				let login_window_server_address = app.login_window_server_address.clone();
+				let login_window_server_address = format!("{}:{}", app.login_window_server_domain, app.login_window_server_port);
 				let login_window_code = app.login_window_code.clone();
-				let login_window_username = app.login_window_username.clone();
+				let login_window_username = format!("@{}:{}", app.login_window_username, app.login_window_server_domain);
 				let send_channel = app.login_ending_channel.0.clone();
 
 				let _handle = tokio::spawn(async move {
