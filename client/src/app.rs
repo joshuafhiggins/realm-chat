@@ -90,6 +90,8 @@ pub struct RealmApp {
 	#[serde(skip)]
 	pub add_room_channel: (Sender<Result<CServer, ErrorCode>>, Receiver<Result<CServer, ErrorCode>>),
 	#[serde(skip)]
+	pub delete_room_channel: (Sender<Result<CServer, ErrorCode>>, Receiver<Result<CServer, ErrorCode>>),
+	#[serde(skip)]
 	pub room_changes_channel: (Sender<Result<(CServer, Vec<Room>), ErrorCode>>, Receiver<Result<(CServer, Vec<Room>), ErrorCode>>)
 }
 
@@ -133,6 +135,7 @@ impl Default for RealmApp {
 			leave_server_channel: broadcast::channel(10),
 			fetching_servers_channel: broadcast::channel(10),
 			add_room_channel: broadcast::channel(10),
+			delete_room_channel: broadcast::channel(10),
 			room_changes_channel: broadcast::channel(10),
 		}
 	}
@@ -412,6 +415,8 @@ impl eframe::App for RealmApp {
 				Ok((serverid, domain, port)) => {
 					info!("Successfully left a server");
 					self.active_servers.as_mut().unwrap().retain(|s| !s.server_id.eq(&serverid));
+					self.selected_serverid.clear();
+					self.selected_roomid.clear();
 					let send_channel = self.remove_server_channel.0.clone();
 					let auth_address = self.current_user.clone().unwrap().auth_address;
 					let username = self.current_user.clone().unwrap().username;
@@ -488,6 +493,23 @@ impl eframe::App for RealmApp {
 					self.room_window_open = false;
 				}
 				Err(e) => error!("Error adding room: {:?}", e),
+			}
+		}
+		
+		// Deleting a room
+		while let Ok(result) = self.delete_room_channel.1.try_recv() {
+			match result {
+				Ok(server) => {
+					info!("Got room delete! Fetching them...");
+					self.selected_roomid.clear();
+					fetch_rooms_data(
+						self.room_changes_channel.0.clone(), 
+						server, 
+						self.current_user.as_ref().unwrap().token.clone(),
+						self.current_user.as_ref().unwrap().username.clone()
+					);
+				}
+				Err(e) => error!("Error deleting room: {:?}", e),
 			}
 		}
 		

@@ -4,6 +4,7 @@ use tarpc::tokio_serde::formats::Json;
 use realm_auth::types::RealmAuthClient;
 use realm_shared::types::ErrorCode::RPCError;
 use regex::Regex;
+use tarpc::client::RpcError;
 use tracing::log::*;
 use realm_server::types::{RealmChatClient, Room};
 use realm_shared::stoken;
@@ -120,8 +121,8 @@ pub fn servers(app: &mut RealmApp, ctx: &Context) {
 
 pub fn rooms(app: &mut RealmApp, ctx: &Context) {
 	egui::SidePanel::left("rooms").show(ctx, |ui| {
-		let mut current_server: Option<&CServer> = None;
-		if let Some(servers) = &app.active_servers {
+		let mut current_server: Option<CServer> = None;
+		if let Some(servers) = app.active_servers.clone() {
 			for server in servers {
 				if server.server_id.eq(&app.selected_serverid) {
 					current_server = Some(server);
@@ -131,16 +132,39 @@ pub fn rooms(app: &mut RealmApp, ctx: &Context) {
 
 		ui.horizontal(|ui| {
 			ui.heading("Rooms");
-			if let Some(server) = current_server {
+			if let Some(server) = current_server.clone() {
 				if server.is_admin && ui.button("+").clicked() {
 					app.room_window_open = true;
+				}
+				if server.is_admin && !app.selected_roomid.is_empty() && ui.button("-").clicked() {
+					let token = app.current_user.as_ref().unwrap().token.clone();
+					let roomid = app.selected_roomid.clone();
+					let userid = app.current_user.as_ref().unwrap().username.clone();
+					let send_channel = app.delete_room_channel.0.clone();
+					let _handle = tokio::spawn(async move {
+						let result = server.tarpc_conn.delete_room(
+							context::current(),
+							stoken(&token, &server.server_id, &server.domain, server.port),
+							userid,
+							roomid
+						).await;
+						
+						match result {
+							Ok(r) => {
+								match r {
+									Ok(_) => send_channel.send(Ok(server)).unwrap(),
+									Err(e) => send_channel.send(Err(e)).unwrap()
+								}
+							},
+							Err(_) => send_channel.send(Err(RPCError)).unwrap(),
+						}
+					});
 				}
 			}
 		});
 		
 		ui.separator();
-
-
+		
 		if let Some(server) = current_server {
 			for room in &server.rooms {
 				if ui.add(SelectableLabel::new(room.roomid.eq(&app.selected_roomid), room.roomid.clone())).clicked() {
