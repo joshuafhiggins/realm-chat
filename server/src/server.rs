@@ -25,6 +25,7 @@ pub struct RealmChatServer {
 	pub db_pool: Pool<Sqlite>,
 	pub typing_users: Vec<(String, String)>, //NOTE: user.userid, room.roomid
 	pub cache: Cache<String, String>,
+	pub events: Vec<(u32, Event)>,
 }
 
 const FETCH_MESSAGE: &str = "SELECT message.*,
@@ -46,6 +47,7 @@ impl RealmChatServer {
 				.time_to_idle(Duration::from_secs(5*60))
 				.time_to_live(Duration::from_secs(60*60))
 				.build(),
+			events: Vec::new(),
 		}
 	}
 	
@@ -215,6 +217,18 @@ impl RealmChat for RealmChatServer {
 
 	async fn is_user_owner(self, _: Context, userid: String) -> bool {
 		self.internal_is_user_owner(&userid).await
+	}
+
+	async fn poll_events_since(self, _: Context, index: u32) -> Vec<(u32, Event)> {
+		let mut events_to_send = Vec::new();
+		
+		for (i, event) in self.events {
+			if i > index {
+				events_to_send.push((i, event));
+			}
+		}
+		
+		events_to_send
 	}
 
 	async fn join_server(self, _: Context, stoken: String, userid: String) -> Result<User, ErrorCode> {

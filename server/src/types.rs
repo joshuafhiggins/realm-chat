@@ -4,7 +4,7 @@ use sqlx::sqlite::SqliteRow;
 use tarpc::serde::{Deserialize, Serialize};
 
 use realm_shared::types::ErrorCode;
-
+use crate::events::Event;
 use crate::types::MessageData::*;
 
 #[tarpc::service]
@@ -14,7 +14,7 @@ pub trait RealmChat {
 	async fn get_info() -> ServerInfo;
 	async fn is_user_admin(stoken: String) -> bool;
 	async fn is_user_owner(stoken: String) -> bool;
-	
+	async fn poll_events_since(index: u32) -> Vec<(u32, Event)>;
 	async fn join_server(stoken: String, userid: String) -> Result<User, ErrorCode>;
 	async fn leave_server(stoken: String, userid: String) -> Result<(), ErrorCode>;
 

@@ -1,4 +1,4 @@
-use realm_server::types::{RealmChatClient, Room};
+use realm_server::types::{Message, RealmChatClient, Room};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct CUser {
@@ -19,5 +19,7 @@ pub struct CServer {
 	pub port: u16,
 	pub is_admin: bool,
 	pub is_owner: bool,
-	pub rooms: Vec<Room>
+	pub rooms: Vec<Room>,
+	pub last_event_index: u32,
+	pub messages: Vec<Message>,
 }

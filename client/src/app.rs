@@ -1,10 +1,14 @@
+use std::time::Duration;
 use tarpc::context;
 use tarpc::tokio_serde::formats::Json;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::task::JoinHandle;
+use tokio::time::sleep;
 use tracing::log::*;
 use realm_auth::types::RealmAuthClient;
-use realm_server::types::{RealmChatClient, Room, User};
+use realm_server::events::Event;
+use realm_server::types::{RealmChatClient, Room};
 use realm_shared::stoken;
 use realm_shared::types::ErrorCode::*;
 use realm_shared::types::ErrorCode;
@@ -95,7 +99,12 @@ pub struct RealmApp {
 	#[serde(skip)]
 	pub delete_room_channel: (Sender<Result<CServer, ErrorCode>>, Receiver<Result<CServer, ErrorCode>>),
 	#[serde(skip)]
-	pub room_changes_channel: (Sender<Result<(CServer, Vec<Room>), ErrorCode>>, Receiver<Result<(CServer, Vec<Room>), ErrorCode>>)
+	pub room_changes_channel: (Sender<Result<(CServer, Vec<Room>), ErrorCode>>, Receiver<Result<(CServer, Vec<Room>), ErrorCode>>),
+
+	#[serde(skip)]
+	pub event_channel: (Sender<(String, (u32, Event))>, Receiver<(String, (u32, Event))>),
+	#[serde(skip)]
+	pub polling_threads: Vec<(String, JoinHandle<()>)>,
 }
 
 impl Default for RealmApp {
@@ -142,6 +151,8 @@ impl Default for RealmApp {
 			add_room_channel: broadcast::channel(256),
 			delete_room_channel: broadcast::channel(256),
 			room_changes_channel: broadcast::channel(256),
+			event_channel: broadcast::channel(256),
+			polling_threads: Vec::new(),
 		}
 	}
 }
@@ -237,6 +248,8 @@ pub fn fetch_server_data(channel: Sender<Result<CServer, ErrorCode>>, addresses:
 				port,
 				is_admin,
 				is_owner,
+				last_event_index: 0,
+				messages: Vec::new(),
 				rooms,
 			})).unwrap();
 		});
@@ -532,6 +545,71 @@ impl eframe::App for RealmApp {
 					}
 				}
 				Err(e) => error!("Error fetching room data: {:?}", e),
+			}
+		}
+		
+		// Polling events
+		while let Ok((serverid, (index, event))) = self.event_channel.1.try_recv() {
+			if let Some(active_servers) = &mut self.active_servers {
+				for server in active_servers {
+					if server.server_id.eq(&serverid) {
+						match event.clone() {
+							Event::NewMessage(message) => {
+								server.messages.push(message);
+							}
+							Event::NewRoom(room) => {
+								server.rooms.push(room);
+							}
+							Event::DeleteRoom(roomid) => {
+								server.rooms.retain(|r| !r.roomid.eq(&roomid));
+							}
+						}
+						server.last_event_index = index;
+					}
+				}
+			}
+		}
+		
+		// Manage polling threads
+		if let Some(active_servers) = &mut self.active_servers {
+			if self.polling_threads.len() != active_servers.len() {
+				let running_thread_serverids = self.polling_threads.iter().map(|t| t.0.clone()).collect::<Vec<String>>();
+				let missing_servers = active_servers.clone().into_iter().filter(|s| !running_thread_serverids.contains(&s.server_id)).collect::<Vec<CServer>>();
+				for server in missing_servers {
+					let send_channel = self.event_channel.0.clone();
+					let _handle = tokio::spawn(async move {
+						loop {
+							let mut transport = tarpc::serde_transport::tcp::connect(format!("{}:{}", server.domain, server.port), Json::default);
+							transport.config_mut().max_frame_length(usize::MAX);
+
+							let result = transport.await;
+							let connection = match result {
+								Ok(connection) => connection,
+								Err(_) => {
+									break;
+								}
+							};
+
+							let client = RealmChatClient::new(tarpc::client::Config::default(), connection).spawn();
+							
+							let result = client.poll_events_since(
+								context::current(),
+								server.last_event_index
+							).await;
+							
+							match result {
+								Ok(events) => {
+									for event in events {
+										send_channel.send((server.server_id.clone(), (event.0, event.1))).unwrap();
+									}
+								}
+								Err(_) => break,
+							}
+
+							sleep(Duration::from_millis(100)).await;
+						}
+					});
+				}
 			}
 		}
 
