@@ -4,11 +4,9 @@ use tarpc::tokio_serde::formats::Json;
 use realm_auth::types::RealmAuthClient;
 use realm_shared::types::ErrorCode::RPCError;
 use regex::Regex;
-use tarpc::client::RpcError;
 use tracing::log::*;
-use realm_server::types::{RealmChatClient, Room};
+use realm_server::types::{Room};
 use realm_shared::stoken;
-use realm_shared::types::ErrorCode;
 use crate::app::RealmApp;
 use crate::types::CServer;
 
