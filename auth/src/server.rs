@@ -6,7 +6,6 @@ use lettre::{Message, SmtpTransport, Transport};
 use lettre::message::header::ContentType;
 use lettre::message::Mailbox;
 use lettre::transport::smtp::authentication::Credentials;
-use lettre::transport::smtp::client::Tls;
 use rand::Rng;
 use regex::Regex;
 use sha3::{Digest, Sha3_256};
@@ -112,7 +111,6 @@ impl RealmAuthServer {
 			// Open a remote connection to gmail
 			let mailer = SmtpTransport::relay(&auth_email.server_address)
 				.unwrap()
-				.tls(Tls::None)
 				.credentials(creds)
 				.build();
 
