@@ -115,8 +115,8 @@ impl Default for RealmApp {
 			login_window_code: String::new(),
 			login_window_server_domain: String::new(),
 			login_window_server_port: "5052".to_string(),
-			login_start_channel: broadcast::channel(10),
-			login_ending_channel: broadcast::channel(10),
+			login_start_channel: broadcast::channel(256),
+			login_ending_channel: broadcast::channel(256),
 			login_ready_for_code_input: false,
 			login_window_email: String::new(),
 
@@ -133,15 +133,15 @@ impl Default for RealmApp {
 			
 			info_window_open: false,
 
-			fetching_user_data_channel: broadcast::channel(10),
-			add_server_channel: broadcast::channel(10),
-			remove_server_channel: broadcast::channel(10),
-			join_server_channel: broadcast::channel(10),
-			leave_server_channel: broadcast::channel(10),
-			fetching_servers_channel: broadcast::channel(10),
-			add_room_channel: broadcast::channel(10),
-			delete_room_channel: broadcast::channel(10),
-			room_changes_channel: broadcast::channel(10),
+			fetching_user_data_channel: broadcast::channel(256),
+			add_server_channel: broadcast::channel(256),
+			remove_server_channel: broadcast::channel(256),
+			join_server_channel: broadcast::channel(256),
+			leave_server_channel: broadcast::channel(256),
+			fetching_servers_channel: broadcast::channel(256),
+			add_room_channel: broadcast::channel(256),
+			delete_room_channel: broadcast::channel(256),
+			room_changes_channel: broadcast::channel(256),
 		}
 	}
 }
@@ -154,9 +154,9 @@ impl RealmApp {
 
 		// Load previous app state (if any).
 		// Note that you must enable the `persistence` feature for this to work.
-		if let Some(storage) = cc.storage {
-			return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
-		}
+		// if let Some(storage) = cc.storage {
+		// 	return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
+		// }
 
 		Default::default()
 	}
