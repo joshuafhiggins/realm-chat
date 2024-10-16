@@ -35,7 +35,7 @@ pub struct RealmApp {
 	pub active_servers: Option<Vec<CServer>>,
 
 	#[serde(skip)]
-	pub value: f32,
+	pub text_message_input: String,
 	#[serde(skip)]
 	pub login_window_open: bool,
 	#[serde(skip)]
@@ -117,12 +117,12 @@ impl Default for RealmApp {
 			saved_token: None,
 			saved_auth_address: None,
 			active_servers: None,
-			value: 2.7,
+			text_message_input: String::new(),
 
 			login_window_open: false,
 			login_window_username: String::new(),
 			login_window_code: String::new(),
-			login_window_server_domain: String::new(),
+			login_window_server_domain: "auth.realm.abunchofknowitalls.com".to_string(),
 			login_window_server_port: "5052".to_string(),
 			login_start_channel: broadcast::channel(256),
 			login_ending_channel: broadcast::channel(256),
@@ -132,7 +132,7 @@ impl Default for RealmApp {
 			signup_window_open: false,
 
 			server_window_open: false,
-			server_window_domain: String::new(),
+			server_window_domain: "realm.abunchofknowitalls.com".to_string(),
 			server_window_port: "5051".to_string(),
 			
 			room_window_open: false,
@@ -165,9 +165,12 @@ impl RealmApp {
 
 		// Load previous app state (if any).
 		// Note that you must enable the `persistence` feature for this to work.
-		// if let Some(storage) = cc.storage {
-		// 	return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
-		// }
+		if !cfg!(debug_assertions) {
+			if let Some(storage) = cc.storage {
+				return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
+			}
+		}
+		
 
 		Default::default()
 	}
@@ -562,6 +565,9 @@ impl eframe::App for RealmApp {
 							}
 							Event::DeleteRoom(roomid) => {
 								server.rooms.retain(|r| !r.roomid.eq(&roomid));
+								if self.selected_roomid.eq(&roomid) {
+									self.selected_roomid.clear();
+								}
 							}
 						}
 						server.last_event_index = index;
@@ -606,7 +612,7 @@ impl eframe::App for RealmApp {
 								Err(_) => break,
 							}
 
-							sleep(Duration::from_millis(100)).await;
+							sleep(Duration::from_millis(75)).await;
 						}
 					});
 				}
@@ -627,6 +633,8 @@ impl eframe::App for RealmApp {
 
 	/// Called by the frame work to save state before shutdown.
 	fn save(&mut self, storage: &mut dyn eframe::Storage) {
-		eframe::set_value(storage, eframe::APP_KEY, self);
+		if !cfg!(debug_assertions) {
+			eframe::set_value(storage, eframe::APP_KEY, self);
+		}
 	}
 }

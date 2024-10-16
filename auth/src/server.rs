@@ -460,44 +460,12 @@ impl RealmAuth for RealmAuthServer {
 		}
 	}
 
-	async fn delete_account_flow(self, _: Context, username: String, token: String) -> Result<(), ErrorCode> {
+	async fn delete_account(self, _: Context, username: String, token: String) -> Result<(), ErrorCode> {
 		info!("API Request: delete_account_flow( username -> {}, token -> {} )", username, token);
 
 		if !self.is_authorized(&username, &token).await? {
 			return Err(Unauthorized);
 		}
-
-		let email = match query!("SELECT email FROM user WHERE username = ?;", username).fetch_one(&self.db_pool).await {
-			Ok(row) => Ok(row.email),
-			Err(_) => Err(InvalidUsername),
-		}?;
-
-		let code = self.gen_login_code();
-
-		let result = query!("UPDATE user SET login_code = ? WHERE username = ?;", code, username)
-			.execute(&self.db_pool).await;
-
-		match result {
-			Ok(_) => {
-				self.send_login_message(&username, &email, code);
-				Ok(())
-			}
-			Err(_) => Err(InvalidUsername)
-		}
-	}
-
-	async fn finish_delete_account_flow(self, _: Context, username: String, token: String, login_code: u32) -> Result<(), ErrorCode> {
-		info!("API Request: finish_delete_account_flow( username -> {}, token -> {}, login_code -> {} )", username, token, login_code);
-
-		if !self.is_authorized(&username, &token).await? {
-			return Err(Unauthorized);
-		}
-
-		if !self.is_login_code_valid(&username, login_code).await? {
-			return Err(InvalidLoginCode);
-		}
-
-		self.reset_login_code(&username).await?;
 
 		let result = query!("DELETE FROM user WHERE username = ?", username).execute(&self.db_pool).await;
 		match result {

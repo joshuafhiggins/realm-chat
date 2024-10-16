@@ -1,3 +1,4 @@
+use chrono::Utc;
 use egui::{Context, SelectableLabel};
 use tarpc::context;
 use tarpc::tokio_serde::formats::Json;
@@ -5,7 +6,7 @@ use realm_auth::types::RealmAuthClient;
 use realm_shared::types::ErrorCode::RPCError;
 use regex::Regex;
 use tracing::log::*;
-use realm_server::types::{Room};
+use realm_server::types::{Message, MessageData, Room, User};
 use realm_shared::stoken;
 use crate::app::RealmApp;
 use crate::types::CServer;
@@ -57,18 +58,56 @@ pub fn top_panel(app: &mut RealmApp, ctx: &Context) {
 				app.selected_roomid.clear();
 				app.selected_serverid.clear();
 			}
-			
-			if ui.button("Info").clicked() {
-				app.info_window_open = true;
-			}
 
 			if ui.button("Quit").clicked() {
 				ctx.send_viewport_cmd(egui::ViewportCommand::Close);
 			}
 
-			ui.add_space(16.0);
+			
+			ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+				egui::widgets::global_theme_preference_buttons(ui);
 
-			egui::widgets::global_theme_preference_buttons(ui);
+				if ui.button("ℹ").clicked() {
+					app.info_window_open = true;
+				}
+				
+				if app.current_user.is_some() && ui.button("Delete Account").clicked() {
+					let address = app.current_user.clone().unwrap().auth_address;
+					let username = app.current_user.clone().unwrap().username;
+					let token = app.current_user.clone().unwrap().token;
+					let _handle = tokio::spawn(async move {
+						let mut transport = tarpc::serde_transport::tcp::connect(address, Json::default);
+						transport.config_mut().max_frame_length(usize::MAX);
+
+						let result = transport.await;
+						let connection = match result {
+							Ok(connection) => connection,
+							Err(e) => {
+								tracing::error!("Failed to connect to server: {}", e);
+								return;
+							}
+						};
+
+						let client = RealmAuthClient::new(tarpc::client::Config::default(), connection).spawn();
+						let result = client.delete_account(context::current(), username, token).await;
+
+						match result {
+							Ok(_) => info!("Account deleted successfully!"),
+							Err(e) => error!("Error deleting account: {:?}", e),
+						}
+					});
+					
+					app.current_user = None;
+					app.saved_username = None;
+					app.saved_token = None;
+					app.saved_auth_address = None;
+
+					app.active_servers = None;
+					app.selected_roomid.clear();
+					app.selected_serverid.clear();
+				}
+			});
+			
 		});
 	});
 }
@@ -150,7 +189,7 @@ pub fn rooms(app: &mut RealmApp, ctx: &Context) {
 							userid,
 							roomid
 						).await;
-						
+
 						match result {
 							Ok(r) => {
 								match r {
@@ -166,7 +205,7 @@ pub fn rooms(app: &mut RealmApp, ctx: &Context) {
 		});
 		
 		ui.separator();
-		
+
 		if let Some(server) = current_server {
 			for room in &server.rooms {
 				if ui.add(SelectableLabel::new(room.roomid.eq(&app.selected_roomid), room.roomid.clone())).clicked() {
@@ -183,7 +222,70 @@ pub fn rooms(app: &mut RealmApp, ctx: &Context) {
 
 pub fn messages(app: &mut RealmApp, ctx: &Context) {
 	egui::CentralPanel::default().show(ctx, |ui| {
-		
+		ui.with_layout(egui::Layout::bottom_up(egui::Align::TOP), |ui| {
+			ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+				if ui.button("").on_hover_text("Send a message").clicked() {
+					if let Some(active_servers) = &app.active_servers {
+						for server in active_servers.clone() {
+							if server.server_id.eq(&app.selected_serverid) {
+								let username = app.current_user.as_ref().unwrap().username.clone();
+								let token = app.current_user.as_ref().unwrap().token.clone();
+								let room = server.rooms.iter().find(|r| r.roomid.eq(&app.selected_roomid)).unwrap().clone();
+								let text_message = app.text_message_input.clone();
+								let _handle = tokio::spawn(async move {
+									let result = server.tarpc_conn.send_message(
+										context::current(),
+										stoken(&token, &server.server_id, &server.domain, server.port),
+										Message {
+											id: 0,
+											timestamp: Utc::now(),
+											user: server.tarpc_conn.get_user(context::current(), username.clone()).await.unwrap().unwrap(),
+											room,
+											data: MessageData::Text(text_message),
+										}
+									).await;
+								});
+							}
+						}
+					}
+				}
+				
+				ui.add(
+					egui::TextEdit::multiline(&mut app.text_message_input)
+						.desired_rows(1)
+						.desired_width(ui.available_width())
+						.hint_text("Send a message...")
+				);
+			});
+			ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+				egui::ScrollArea::vertical().show(ui, |ui| {
+					if let Some(active_servers) = &app.active_servers {
+						for server in active_servers {
+							let messages_to_display = server.messages
+								.iter()
+								.filter(|m| m.room.roomid.eq(&app.selected_roomid))
+								.collect::<Vec<&Message>>();
+							
+							for message in messages_to_display {
+								match message.clone().data {
+									MessageData::Text(text) => {
+										ui.label(format!("{} - {}: {}",
+														 message.timestamp.format("%Y-%m-%d %H:%M:%S"),
+														 message.user.userid.split(':').collect::<Vec<&str>>()[0], 
+														 text));
+									}
+									MessageData::Attachment(_) => {}
+									MessageData::Reply(_) => {}
+									MessageData::Edit(_) => {}
+									MessageData::Reaction(_) => {}
+									MessageData::Redaction(_) => {}
+								}
+							}
+						}
+					}
+				});
+			});
+		});
 	});
 }
 
@@ -211,7 +313,7 @@ pub fn modals(app: &mut RealmApp, ctx: &Context) {
 				ui.label(format!("Current user: {:?}", app.current_user));
 			});
 		});
-	
+
 	egui::Window::new("Signup")
 		.open(&mut app.signup_window_open)
 		.min_size((500.0, 200.0))
