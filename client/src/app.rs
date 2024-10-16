@@ -624,7 +624,7 @@ impl eframe::App for RealmApp {
 								Err(_) => break,
 							}
 
-							sleep(Duration::from_millis(5000)).await;
+							sleep(Duration::from_millis(1000)).await;
 						}
 					});
 					self.polling_threads.push((server.server_id.clone(), handle));
