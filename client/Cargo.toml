@@ -3,6 +3,14 @@ name = "realm_client"
 version = "0.1.0"
 edition = "2021"
 
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "link-args=-mwindows "]
+
+[package.metadata.bundle]
+name = "Realm Chat"
+identifier = "com.abunchofknowitalls.realm"
+icon = ["32x32.png", "128x128.png"]
+
 [dependencies]
 realm_auth = { path = "../auth" }
 realm_server = { path = "../server" }
