@@ -26,7 +26,7 @@ pub trait RealmChat {
 
 	//NOTE: Any user can call, if they are in the server
 	async fn get_message(stoken: String, userid: String, id: i64) -> Result<Message, ErrorCode>;
-	async fn get_messages_since(stoken: String, userid: String, time: DateTime<Utc>) -> Result<Vec<Message>, ErrorCode>;
+	async fn get_messages_since(stoken: String, userid: String, id: i64) -> Result<Vec<Message>, ErrorCode>;
 	async fn get_all_direct_replies(stoken: String, userid: String, head: i64) -> Result<Vec<Message>, ErrorCode>;
 	async fn get_reply_chain(stoken: String, userid: String, head: Message, depth: u8) -> Result<ReplyChain, ErrorCode>;
 	async fn get_rooms(stoken: String, userid: String) -> Result<Vec<Room>, ErrorCode>;

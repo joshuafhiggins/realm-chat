@@ -4,6 +4,7 @@ use crate::types::{Message, Room, User};
 pub enum Event {
 	// UserJoined(User),
 	// UserLeft(User),
+	None,
 	NewMessage(Message),
 	NewRoom(Room),
 	DeleteRoom(String),

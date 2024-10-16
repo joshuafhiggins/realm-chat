@@ -20,6 +20,6 @@ pub struct CServer {
 	pub is_admin: bool,
 	pub is_owner: bool,
 	pub rooms: Vec<Room>,
-	pub last_event_index: u32,
+	pub last_event_index: i64,
 	pub messages: Vec<Message>,
 }

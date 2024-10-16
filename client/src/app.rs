@@ -70,7 +70,7 @@ pub struct RealmApp {
 	pub room_window_admin_only_send: bool,
 	#[serde(skip)]
 	pub room_window_admin_only_view: bool,
-	
+
 	#[serde(skip)]
 	pub info_window_open: bool,
 
@@ -102,7 +102,7 @@ pub struct RealmApp {
 	pub room_changes_channel: (Sender<Result<(CServer, Vec<Room>), ErrorCode>>, Receiver<Result<(CServer, Vec<Room>), ErrorCode>>),
 
 	#[serde(skip)]
-	pub event_channel: (Sender<(String, (u32, Event))>, Receiver<(String, (u32, Event))>),
+	pub event_channel: (Sender<(String, (i64, Event))>, Receiver<(String, (i64, Event))>),
 	#[serde(skip)]
 	pub polling_threads: Vec<(String, JoinHandle<()>)>,
 }
@@ -139,7 +139,7 @@ impl Default for RealmApp {
 			room_window_name: String::new(),
 			room_window_admin_only_send: false,
 			room_window_admin_only_view: false,
-			
+
 			info_window_open: false,
 
 			fetching_user_data_channel: broadcast::channel(256),
@@ -170,7 +170,7 @@ impl RealmApp {
 				return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
 			}
 		}
-		
+
 
 		Default::default()
 	}
@@ -429,7 +429,7 @@ impl eframe::App for RealmApp {
 				}
 			}
 		}
-		
+
 		// Leaving a server
 		while let Ok(result) = self.leave_server_channel.1.try_recv() {
 			match result {
@@ -456,7 +456,7 @@ impl eframe::App for RealmApp {
 						};
 
 						let client = RealmAuthClient::new(tarpc::client::Config::default(), connection).spawn();
-						
+
 						let result = client.remove_server(context::current(), username, token, domain, port).await;
 						match result {
 							Ok(r) => { send_channel.send(r).unwrap(); },
@@ -469,7 +469,7 @@ impl eframe::App for RealmApp {
 				}
 			}
 		}
-		
+
 		// Removing a server (auth)
 		while let Ok(result) = self.remove_server_channel.1.try_recv() {
 			match result {
@@ -516,7 +516,7 @@ impl eframe::App for RealmApp {
 				Err(e) => error!("Error adding room: {:?}", e),
 			}
 		}
-		
+
 		// Deleting a room
 		while let Ok(result) = self.delete_room_channel.1.try_recv() {
 			match result {
@@ -524,8 +524,8 @@ impl eframe::App for RealmApp {
 					info!("Got room delete! Fetching them...");
 					self.selected_roomid.clear();
 					fetch_rooms_data(
-						self.room_changes_channel.0.clone(), 
-						server, 
+						self.room_changes_channel.0.clone(),
+						server,
 						self.current_user.as_ref().unwrap().token.clone(),
 						self.current_user.as_ref().unwrap().username.clone()
 					);
@@ -550,7 +550,7 @@ impl eframe::App for RealmApp {
 				Err(e) => error!("Error fetching room data: {:?}", e),
 			}
 		}
-		
+
 		// Polling events
 		while let Ok((serverid, (index, event))) = self.event_channel.1.try_recv() {
 			if let Some(active_servers) = &mut self.active_servers {
@@ -568,14 +568,17 @@ impl eframe::App for RealmApp {
 								if self.selected_roomid.eq(&roomid) {
 									self.selected_roomid.clear();
 								}
-							}
+							},
+							_ => {  }
 						}
-						server.last_event_index = index;
+						if index > server.last_event_index {
+							server.last_event_index = index;
+						}
 					}
 				}
 			}
 		}
-		
+
 		// Manage polling threads
 		if let Some(active_servers) = &mut self.active_servers {
 			if self.polling_threads.len() != active_servers.len() {
@@ -583,10 +586,12 @@ impl eframe::App for RealmApp {
 				let missing_servers = active_servers.clone().into_iter().filter(|s| !running_thread_serverids.contains(&s.server_id)).collect::<Vec<CServer>>();
 				for server in missing_servers {
 					let send_channel = self.event_channel.0.clone();
-					let _handle = tokio::spawn(async move {
+					let serverid = server.server_id.clone();
+					let token = self.current_user.as_ref().unwrap().token.clone();
+					let userid = self.current_user.as_ref().unwrap().username.clone();
+					let handle = tokio::spawn(async move {
 						let mut transport = tarpc::serde_transport::tcp::connect(format!("{}:{}", server.domain, server.port), Json::default);
 						transport.config_mut().max_frame_length(usize::MAX);
-
 						let result = transport.await;
 						let connection = match result {
 							Ok(connection) => connection,
@@ -594,26 +599,35 @@ impl eframe::App for RealmApp {
 								return;
 							}
 						};
-
 						let client = RealmChatClient::new(tarpc::client::Config::default(), connection).spawn();
+						let mut last_event_index = 0;
+						
 						loop {
-							let result = client.poll_events_since(
+							let result = client.get_messages_since(
 								context::current(),
-								server.last_event_index
+								stoken(&token, &serverid, &server.domain, server.port),
+								userid.clone(),
+								last_event_index
 							).await;
-							
+
 							match result {
-								Ok(events) => {
-									for event in events {
-										send_channel.send((server.server_id.clone(), (event.0, event.1))).unwrap();
+								Ok(messages) => {
+									if let Ok(messages) = messages {
+										if let Some(last) = messages.last() {
+											last_event_index = last.id;
+										}
+										for message in messages {
+											send_channel.send((serverid.clone(), (message.id, Event::NewMessage(message)))).unwrap();
+										}
 									}
 								}
 								Err(_) => break,
 							}
 
-							sleep(Duration::from_millis(1000)).await;
+							sleep(Duration::from_millis(5000)).await;
 						}
 					});
+					self.polling_threads.push((server.server_id.clone(), handle));
 				}
 			}
 		}

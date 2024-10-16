@@ -25,13 +25,13 @@ pub struct RealmChatServer {
 	pub db_pool: Pool<Sqlite>,
 	pub typing_users: Vec<(String, String)>, //NOTE: user.userid, room.roomid
 	pub cache: Cache<String, String>,
-	pub events: Vec<(u32, Event)>,
+	//pub events: Arc<Mutex<Vec<(u32, Event)>>>,
 }
 
 const FETCH_MESSAGE: &str = "SELECT message.*,
         room.id AS 'room_id', room.roomid AS 'room_roomid', room.admin_only_send AS 'room_admin_only_send', room.admin_only_view AS 'room_admin_only_view',
         user.id AS 'user_id', user.userid AS 'user_userid', user.name AS 'user_name', user.owner AS 'user_owner', user.admin AS 'user_admin'
-	    FROM message INNER JOIN room ON message.room = room.id INNER JOIN user ON message.user = user.id WHERE room.admin_only_view = ? OR false";
+	    FROM message INNER JOIN room ON message.room = room.id INNER JOIN user ON message.user = user.id";
 
 impl RealmChatServer {
 	pub fn new(server_id: String, socket: SocketAddr, db_pool: Pool<Sqlite>) -> RealmChatServer {
@@ -47,7 +47,7 @@ impl RealmChatServer {
 				.time_to_idle(Duration::from_secs(5*60))
 				.time_to_live(Duration::from_secs(60*60))
 				.build(),
-			events: Vec::new(),
+			//events: Arc::new(Mutex::new(Vec::new())),
 		}
 	}
 	
@@ -220,15 +220,18 @@ impl RealmChat for RealmChatServer {
 	}
 
 	async fn poll_events_since(self, _: Context, index: u32) -> Vec<(u32, Event)> {
-		let mut events_to_send = Vec::new();
+		//self.events.lock().await.iter().filter(|(i, _)| i > &index).map(|(i, e)| (*i, e.clone())).collect()
 		
-		for (i, event) in self.events {
-			if i > index {
-				events_to_send.push((i, event));
-			}
-		}
-		
-		events_to_send
+		// let mut events_to_send = Vec::new();
+		// 
+		// for (i, event) in self.events.lock().await.clone() {
+		// 	if i > index {
+		// 		events_to_send.push((i, event));
+		// 	}
+		// }
+		// 
+		// events_to_send
+		Vec::new()
 	}
 
 	async fn join_server(self, _: Context, stoken: String, userid: String) -> Result<User, ErrorCode> {
@@ -296,42 +299,42 @@ impl RealmChat for RealmChatServer {
 	}
 
 	async fn send_message(self, _: Context, stoken: String, mut message: Message) -> Result<Message, ErrorCode> {
-		if !self.is_stoken_valid(&message.user.userid, &stoken).await { // Check sender userid
-			return Err(Unauthorized)
-		}
+		// if !self.is_stoken_valid(&message.user.userid, &stoken).await { // Check sender userid
+		// 	return Err(Unauthorized)
+		// }
+		// 
+		// // Assert all the data in message is correct
+		// message.user = self.inner_get_user(&message.user.userid).await?;
 
-		// Assert all the data in message is correct
-		message.user = self.inner_get_user(&message.user.userid).await?;
+		// match &message.data { // Check that the sender is the owner of the referencing msg
+		// 	MessageData::Edit(e) => {
+		// 		let ref_msg = self.inner_get_message(&message.user.userid, e.referencing_id).await?;
+		// 		if !ref_msg.user.userid.eq(&message.user.userid) {
+		// 			return Err(Unauthorized)
+		// 		}
+		// 	}
+		// 	MessageData::Redaction(r)=> {
+		// 		let ref_msg = self.inner_get_message(&message.user.userid, r.referencing_id).await?;
+		// 		if !ref_msg.user.userid.eq(&message.user.userid) || !self.internal_is_user_admin(&message.user.userid).await {
+		// 			return Err(Unauthorized)
+		// 		}
+		// 	}
+		// 	_ => {}
+		// }
 
-		match &message.data { // Check that the sender is the owner of the referencing msg
-			MessageData::Edit(e) => {
-				let ref_msg = self.inner_get_message(&message.user.userid, e.referencing_id).await?;
-				if !ref_msg.user.userid.eq(&message.user.userid) {
-					return Err(Unauthorized)
-				}
-			}
-			MessageData::Redaction(r)=> {
-				let ref_msg = self.inner_get_message(&message.user.userid, r.referencing_id).await?;
-				if !ref_msg.user.userid.eq(&message.user.userid) || !self.internal_is_user_admin(&message.user.userid).await {
-					return Err(Unauthorized)
-				}
-			}
-			_ => {}
-		}
-
-		let is_admin = self.internal_is_user_admin(&message.user.userid).await;
-		let admin_only_send = query!(
-			"SELECT admin_only_send FROM room WHERE roomid = ?",
-			message.room.roomid).fetch_one(&self.db_pool).await;
-		if let Ok(record) = admin_only_send {
-			if record.admin_only_send && !is_admin {
-				return Err(Unauthorized)
-			}
-		} else {
-			return Err(RoomNotFound)
-		}
-
-		message.room = self.inner_get_room(&message.user.userid, &message.room.roomid).await?;
+		// let is_admin = self.internal_is_user_admin(&message.user.userid).await;
+		// let admin_only_send = query!(
+		// 	"SELECT admin_only_send FROM room WHERE roomid = ?",
+		// 	message.room.roomid).fetch_one(&self.db_pool).await;
+		// if let Ok(record) = admin_only_send {
+		// 	if record.admin_only_send && !is_admin {
+		// 		return Err(Unauthorized)
+		// 	}
+		// } else {
+		// 	return Err(RoomNotFound)
+		// }
+		// 
+		// message.room = self.inner_get_room(&message.user.userid, &message.room.roomid).await?;
 
 		let result = match &message.data {
 			MessageData::Text(text) => {
@@ -371,6 +374,9 @@ impl RealmChat for RealmChatServer {
 				// if result.is_err() {
 				// 	error!("Error broadcasting NewMessageEvent!");
 				// }
+				// self.events.lock().await.push(
+				// 	(self.events.lock().await.len() as u32 + 1,
+				// 	 Event::NewMessage(message.clone())));
 
 				Ok(message)
 			},
@@ -411,15 +417,15 @@ impl RealmChat for RealmChatServer {
 		}
 	}
 
-	async fn get_messages_since(self, _: Context, stoken: String, userid: String, time: DateTime<Utc>) -> Result<Vec<Message>, ErrorCode> {
+	async fn get_messages_since(self, _: Context, stoken: String, userid: String, id: i64) -> Result<Vec<Message>, ErrorCode> {
 		if !self.is_stoken_valid(&userid, &stoken).await {
 			return Err(Unauthorized)
 		}
 		
 		let is_admin = self.internal_is_user_admin(&userid).await;
-		let result = sqlx::query(&format!("{}{}", FETCH_MESSAGE, "AND message.timestamp >= ?"))
-			.bind(is_admin)
-			.bind(time)
+		let result = sqlx::query(&format!("{}{}", FETCH_MESSAGE, " AND message.id > ?"))
+			//.bind(is_admin)
+			.bind(id)
 			.fetch_all(&self.db_pool).await;
 
 		match result {
@@ -497,6 +503,10 @@ impl RealmChat for RealmChatServer {
 				// if result.is_err() {
 				// 	error!("Error broadcasting NewRoomEvent!");
 				// }
+
+				// self.events.lock().await.push(
+				// 	(self.events.lock().await.len() as u32 + 1,
+				// 	 Event::NewRoom(room.clone())));
 				
 				Ok(room)
 			}
@@ -524,6 +534,10 @@ impl RealmChat for RealmChatServer {
 				// if result.is_err() {
 				// 	error!("Error broadcasting DeleteRoomEvent!");
 				// }
+
+				// self.events.lock().await.push(
+				// 	(self.events.lock().await.len() as u32 + 1,
+				// 	 Event::DeleteRoom(roomid.clone())));
 				
 				Ok(())
 			}
