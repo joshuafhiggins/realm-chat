@@ -584,20 +584,19 @@ impl eframe::App for RealmApp {
 				for server in missing_servers {
 					let send_channel = self.event_channel.0.clone();
 					let _handle = tokio::spawn(async move {
+						let mut transport = tarpc::serde_transport::tcp::connect(format!("{}:{}", server.domain, server.port), Json::default);
+						transport.config_mut().max_frame_length(usize::MAX);
+
+						let result = transport.await;
+						let connection = match result {
+							Ok(connection) => connection,
+							Err(_) => {
+								return;
+							}
+						};
+
+						let client = RealmChatClient::new(tarpc::client::Config::default(), connection).spawn();
 						loop {
-							let mut transport = tarpc::serde_transport::tcp::connect(format!("{}:{}", server.domain, server.port), Json::default);
-							transport.config_mut().max_frame_length(usize::MAX);
-
-							let result = transport.await;
-							let connection = match result {
-								Ok(connection) => connection,
-								Err(_) => {
-									break;
-								}
-							};
-
-							let client = RealmChatClient::new(tarpc::client::Config::default(), connection).spawn();
-							
 							let result = client.poll_events_since(
 								context::current(),
 								server.last_event_index
@@ -612,7 +611,7 @@ impl eframe::App for RealmApp {
 								Err(_) => break,
 							}
 
-							sleep(Duration::from_millis(75)).await;
+							sleep(Duration::from_millis(1000)).await;
 						}
 					});
 				}

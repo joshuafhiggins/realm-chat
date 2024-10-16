@@ -223,8 +223,8 @@ pub fn rooms(app: &mut RealmApp, ctx: &Context) {
 pub fn messages(app: &mut RealmApp, ctx: &Context) {
 	egui::CentralPanel::default().show(ctx, |ui| {
 		ui.with_layout(egui::Layout::bottom_up(egui::Align::TOP), |ui| {
-			ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
-				if ui.button("").on_hover_text("Send a message").clicked() {
+			ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+				if ui.button("✉").on_hover_text("Send a message").clicked() {
 					if let Some(active_servers) = &app.active_servers {
 						for server in active_servers.clone() {
 							if server.server_id.eq(&app.selected_serverid) {
@@ -245,6 +245,8 @@ pub fn messages(app: &mut RealmApp, ctx: &Context) {
 										}
 									).await;
 								});
+								
+								app.text_message_input.clear();
 							}
 						}
 					}
