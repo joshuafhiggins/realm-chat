@@ -15,6 +15,7 @@ use tarpc::server::incoming::Incoming;
 use tarpc::server::BaseChannel;
 use tokio::sync::Mutex;
 use tracing::{info, subscriber, warn};
+use tracing::instrument::WithSubscriber;
 use realm_server::events::*;
 use realm_server::server::RealmChatServer;
 use realm_server::types::{RealmChat};
@@ -98,7 +99,15 @@ async fn main() -> anyhow::Result<()> {
 		// the generated World trait.
 		.map(|channel| {
 			let server = RealmChatServer::new(env::var("SERVER_ID").expect("SERVER_ID must be set"), channel.transport().peer_addr().unwrap(), db_pool.clone());
-			channel.execute(server.serve()).for_each(spawn)
+			let tarpc_subscriber = tracing_subscriber::fmt()
+				.compact()
+				.with_file(false)
+				.with_line_number(false)
+				.with_thread_ids(true)
+				.with_target(false)
+				.finish();
+			
+			channel.execute(server.serve()).for_each(spawn).with_subscriber(tarpc_subscriber)
 		})
 		// Max 10 channels.
 		.buffer_unordered(4096)
